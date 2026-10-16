@@ -175,7 +175,7 @@ struct ContentView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                 Text("可用 \(SystemMonitor.formatDiskGB(monitor.diskFree)) / 共 \(SystemMonitor.formatDiskGB(monitor.diskTotal))")
-                    .font(.system(size: 11))
+                    .font(.system(size: 11, weight: .regular))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                     .fixedSize(horizontal: true, vertical: false)
@@ -216,10 +216,10 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("↑ \(SystemMonitor.formatSpeed(monitor.uploadSpeed))")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
                 Spacer()
                 Text("↓ \(SystemMonitor.formatSpeed(monitor.downloadSpeed))")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
             }
             .foregroundStyle(.secondary)
 
@@ -241,10 +241,10 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("读 \(SystemMonitor.formatSpeed(monitor.diskReadSpeed))")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
                 Spacer()
                 Text("写 \(SystemMonitor.formatSpeed(monitor.diskWriteSpeed))")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
             }
             .foregroundStyle(.secondary)
 
@@ -318,13 +318,13 @@ struct MetricColumn: View {
                     .minimumScaleFactor(0.8)
                 HStack(alignment: .firstTextBaseline, spacing: 1) {
                     Text(valueText)
-                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                        .font(.system(size: 26, weight: .medium, design: .rounded))
                         .foregroundStyle(color)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                     if !unit.isEmpty {
                         Text(unit)
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .font(.system(size: 11, weight: .regular, design: .rounded))
                             .foregroundStyle(color.opacity(0.85))
                     }
                 }
@@ -395,7 +395,7 @@ struct AppMemoryRow: View {
                         }
                     } else {
                         Text(SystemMonitor.formatBytes(app.memoryBytes))
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.system(size: 11, weight: .regular, design: .monospaced))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -448,7 +448,7 @@ struct AppInfoPopover: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
                 .textSelection(.enabled)
         }
     }
