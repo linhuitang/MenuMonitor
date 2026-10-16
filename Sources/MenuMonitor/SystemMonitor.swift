@@ -412,24 +412,40 @@ final class SystemMonitor: ObservableObject {
         let percentSize = percentStr.size(withAttributes: percentAttrs)
         let memSize = memStr.size(withAttributes: memAttrs)
 
+        // Use typographic line heights so lines never overlap
         let percentLineH = ceil(percentFont.ascender - percentFont.descender)
         let memLineH = ceil(memFont.ascender - memFont.descender)
         let gap: CGFloat = 1
         let padX: CGFloat = 2
         let padY: CGFloat = 1
 
-        let contentW = max(percentSize.width, memSize.width)
-        let logicalW = ceil(contentW + padX * 2)
+        let logicalW = ceil(max(percentSize.width, memSize.width) + padX * 2)
         let logicalH = min(22, ceil(percentLineH + memLineH + gap + padY * 2))
         let size = NSSize(width: logicalW, height: logicalH)
 
+        // Drawing handler (flipped) for correct top→bottom layout; NSImage caches @2x when drawn
+        let image = NSImage(size: size, flipped: true) { rect in
+            NSColor.clear.setFill()
+            rect.fill()
+
+            let percentX = (rect.width - percentSize.width) / 2
+            let memX = (rect.width - memSize.width) / 2
+            let percentY = padY
+            let memY = padY + percentLineH + gap
+
+            percentStr.draw(in: NSRect(x: percentX, y: percentY, width: percentSize.width, height: percentLineH),
+                            withAttributes: percentAttrs)
+            memStr.draw(in: NSRect(x: memX, y: memY, width: memSize.width, height: memLineH),
+                        withAttributes: memAttrs)
+            return true
+        }
+
+        // Force a crisp 2x bitmap representation for menu bar + preview
         let scale: CGFloat = 2
-        let pixelsWide = Int(logicalW * scale)
-        let pixelsHigh = Int(logicalH * scale)
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
-            pixelsWide: pixelsWide,
-            pixelsHigh: pixelsHigh,
+            pixelsWide: Int(logicalW * scale),
+            pixelsHigh: Int(logicalH * scale),
             bitsPerSample: 8,
             samplesPerPixel: 4,
             hasAlpha: true,
@@ -438,38 +454,25 @@ final class SystemMonitor: ObservableObject {
             bytesPerRow: 0,
             bitsPerPixel: 0
         ) else {
-            return NSImage(size: size)
+            image.isTemplate = true
+            return image
         }
-        rep.size = size // point size
-
+        rep.size = size
         NSGraphicsContext.saveGraphicsState()
-        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else {
-            NSGraphicsContext.restoreGraphicsState()
-            return NSImage(size: size)
+        if let ctx = NSGraphicsContext(bitmapImageRep: rep) {
+            NSGraphicsContext.current = ctx
+            ctx.cgContext.scaleBy(x: scale, y: scale)
+            image.draw(in: NSRect(origin: .zero, size: size),
+                       from: .zero,
+                       operation: .copy,
+                       fraction: 1.0)
         }
-        NSGraphicsContext.current = ctx
-        ctx.cgContext.interpolationQuality = .high
-        ctx.imageInterpolation = .high
-        // Flip to top-left origin for easier layout
-        ctx.cgContext.translateBy(x: 0, y: CGFloat(pixelsHigh))
-        ctx.cgContext.scaleBy(x: scale, y: -scale)
-
-        // Clear transparent (no background)
-        ctx.cgContext.clear(CGRect(x: 0, y: 0, width: logicalW, height: logicalH))
-
-        let percentX = (logicalW - percentSize.width) / 2
-        let memX = (logicalW - memSize.width) / 2
-        let percentY = padY
-        let memY = padY + percentLineH + gap
-
-        percentStr.draw(at: NSPoint(x: percentX, y: percentY), withAttributes: percentAttrs)
-        memStr.draw(at: NSPoint(x: memX, y: memY), withAttributes: memAttrs)
         NSGraphicsContext.restoreGraphicsState()
 
-        let image = NSImage(size: size)
-        image.addRepresentation(rep)
-        image.isTemplate = true
-        return image
+        let finalImage = NSImage(size: size)
+        finalImage.addRepresentation(rep)
+        finalImage.isTemplate = true
+        return finalImage
     }
 
     static func formatBytes(_ bytes: UInt64) -> String {
