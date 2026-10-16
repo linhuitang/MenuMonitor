@@ -334,7 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
         }
 
-        let headerHeight: CGFloat = 72
+        let headerHeight: CGFloat = 88
         var saved = false
 
         if panel.windowNumber > 0 {

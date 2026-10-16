@@ -33,13 +33,29 @@ struct ContentView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Image(nsImage: Self.headerAppIcon())
-                    .resizable()
-                    .interpolation(.high)
-                    .antialiased(true)
-                    .scaledToFit()
-                    .frame(width: 44, height: 44)
+            HStack(alignment: .center, spacing: 10) {
+                // Soft lavender diffuse shadow under the sphere (SwiftUI only; image pixels untouched).
+                ZStack {
+                    Ellipse()
+                        .fill(Color(red: 154/255, green: 168/255, blue: 232/255).opacity(0.35)) // #9AA8E8
+                        .frame(width: 38, height: 14)
+                        .blur(radius: 6)
+                        .offset(y: 18)
+                    Image(nsImage: Self.headerAppIcon())
+                        .resizable()
+                        .interpolation(.high)
+                        .antialiased(true)
+                        .scaledToFit()
+                        .frame(width: 44, height: 44)
+                        .shadow(
+                            color: Color(red: 154/255, green: 168/255, blue: 232/255).opacity(0.28),
+                            radius: 6,
+                            y: 3
+                        )
+                }
+                // Extra layout room so blur/shadow is not clipped by the header row.
+                .frame(width: 44, height: 52, alignment: .top)
+                .padding(.bottom, 2)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(monitor.junkText)
