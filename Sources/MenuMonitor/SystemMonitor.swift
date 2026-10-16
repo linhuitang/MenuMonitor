@@ -55,8 +55,15 @@ final class SystemMonitor: ObservableObject {
     private var prevNetBytes: (UInt64, UInt64, Date)? = nil
     private var prevDiskBytes: (UInt64, UInt64, Date)? = nil
 
+    /// Treat less than 1 MiB as nothing worth cleaning.
+    static let junkCleanThreshold: UInt64 = 1024 * 1024
+
+    var hasCleanableJunk: Bool {
+        junkBytes >= Self.junkCleanThreshold
+    }
+
     var junkText: String {
-        if junkBytes == 0 {
+        if junkBytes < Self.junkCleanThreshold {
             return "没有要清理的垃圾"
         }
         return "待清理垃圾 \(Self.formatBytes(junkBytes))"
@@ -96,6 +103,7 @@ final class SystemMonitor: ObservableObject {
 
     func cleanCaches(dryRun: Bool = false) {
         guard !isCleaning else { return }
+        if !dryRun && junkBytes < Self.junkCleanThreshold { return }
         isCleaning = true
         cleanProgress = 0
         cleanRawProgress = 0

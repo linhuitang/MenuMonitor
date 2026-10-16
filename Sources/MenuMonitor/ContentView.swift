@@ -18,6 +18,14 @@ struct ContentView: View {
     private let panelRadius: CGFloat = 24
     private let panelBg = Color(red: 239/255, green: 241/255, blue: 244/255) // #EFF1F4
 
+    /// Idle + junk below 1 MiB: grey out 快速清理 (cleaning / result UI unchanged).
+    private var quickCleanGreyed: Bool {
+        !monitor.isCleaning
+            && monitor.cleanProgress == 0
+            && (monitor.cleanStatusMessage == nil || monitor.cleanStatusMessage?.isEmpty == true)
+            && !monitor.hasCleanableJunk
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
@@ -78,14 +86,15 @@ struct ContentView: View {
                 } label: {
                     Text(monitor.isCleaning ? "清理中…" : "快速清理")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(MenuMonitorTheme.labelGray)
+                        .foregroundStyle(MenuMonitorTheme.labelGray.opacity(quickCleanGreyed ? 0.45 : 1))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.white))
-                        .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+                        .background(Capsule().fill(Color.white.opacity(quickCleanGreyed ? 0.7 : 1)))
+                        .shadow(color: .black.opacity(quickCleanGreyed ? 0 : 0.08), radius: 3, y: 1)
                 }
                 .buttonStyle(.plain)
-                .disabled(monitor.isCleaning)
+                .disabled(monitor.isCleaning || quickCleanGreyed)
+                .allowsHitTesting(!quickCleanGreyed)
             }
 
             // Show bar through completion (progress == 1) until status is cleared.
