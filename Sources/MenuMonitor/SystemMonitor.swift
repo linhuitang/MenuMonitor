@@ -418,12 +418,21 @@ final class SystemMonitor: ObservableObject {
         var memAscent: CGFloat = 0, memDescent: CGFloat = 0, memLeading: CGFloat = 0
         let memWidth = CGFloat(CTLineGetTypographicBounds(memLine, &memAscent, &memDescent, &memLeading))
 
-        let gap: CGFloat = 1 // ~1pt between bottom of % glyphs and top of MEM glyphs
+        // Optical/glyph path bounds (relative to baseline) for tight visual spacing
+        let percentInk = CTLineGetBoundsWithOptions(percentLine, [.useOpticalBounds])
+        let memInk = CTLineGetBoundsWithOptions(memLine, [.useOpticalBounds])
+        // Fallback to typographic if optical empty
+        let pInkMinY = percentInk.isNull || percentInk.isEmpty ? -percentDescent : percentInk.minY
+        let pInkMaxY = percentInk.isNull || percentInk.isEmpty ? percentAscent : percentInk.maxY
+        let mInkMinY = memInk.isNull || memInk.isEmpty ? -memDescent : memInk.minY
+        let mInkMaxY = memInk.isNull || memInk.isEmpty ? memAscent : memInk.maxY
+
+        let gap: CGFloat = 1 // ~1pt between ink bottom of % and ink top of MEM
         let padX: CGFloat = 2
 
         let logicalW = ceil(max(percentWidth, memWidth) + padX * 2)
         let logicalH: CGFloat = 22
-        let blockH = percentAscent + percentDescent + gap + memAscent + memDescent
+        let blockH = (pInkMaxY - pInkMinY) + gap + (mInkMaxY - mInkMinY)
         let blockTop = max(0, (logicalH - blockH) / 2)
         let size = NSSize(width: logicalW, height: logicalH)
 
@@ -451,9 +460,13 @@ final class SystemMonitor: ObservableObject {
         cg.clear(CGRect(x: 0, y: 0, width: logicalW, height: logicalH))
         cg.setFillColor(NSColor.black.cgColor)
 
-        // Bottom-left baselines: MEM sits 1pt below percent glyph box
-        let percentBaseline = logicalH - blockTop - percentAscent
-        let memBaseline = percentBaseline - percentDescent - gap - memAscent
+        // Place percent ink top at blockTop; MEM ink top = percent ink bottom + gap
+        // baseline such that baseline + inkMaxY = top of ink in bottom-left y
+        let percentInkTop = logicalH - blockTop
+        let percentBaseline = percentInkTop - pInkMaxY
+        let percentInkBottom = percentBaseline + pInkMinY
+        let memInkTop = percentInkBottom - gap
+        let memBaseline = memInkTop - mInkMaxY
 
         cg.textPosition = CGPoint(x: (logicalW - percentWidth) / 2, y: percentBaseline)
         CTLineDraw(percentLine, cg)
@@ -461,9 +474,9 @@ final class SystemMonitor: ObservableObject {
         CTLineDraw(memLine, cg)
 
         if CommandLine.arguments.contains("--render-label-preview") {
-            fputs(String(format: "metrics w=%.1f h=%.1f blockH=%.1f blockTop=%.1f pAsc=%.1f pDesc=%.1f pBase=%.1f mAsc=%.1f mDesc=%.1f mBase=%.1f gap=%.1f\n",
-                         logicalW, logicalH, blockH, blockTop, percentAscent, percentDescent, percentBaseline,
-                         memAscent, memDescent, memBaseline, gap), stderr)
+            fputs(String(format: "metrics w=%.1f h=%.1f blockH=%.1f blockTop=%.1f pInk=%.1f..%.1f mInk=%.1f..%.1f pBase=%.1f mBase=%.1f gap=%.1f\n",
+                         logicalW, logicalH, blockH, blockTop, pInkMinY, pInkMaxY, mInkMinY, mInkMaxY,
+                         percentBaseline, memBaseline, gap), stderr)
         }
 
         guard let cgImage = cg.makeImage() else { return NSImage(size: size) }
