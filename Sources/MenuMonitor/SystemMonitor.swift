@@ -45,7 +45,10 @@ final class SystemMonitor: ObservableObject {
     private var prevDiskBytes: (UInt64, UInt64, Date)? = nil
 
     var junkText: String {
-        "待清理垃圾 \(Self.formatBytes(junkBytes))"
+        if junkBytes == 0 {
+            return "没有要清理的垃圾"
+        }
+        return "待清理垃圾 \(Self.formatBytes(junkBytes))"
     }
 
     init() {

@@ -34,11 +34,12 @@ struct ContentView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Image(nsImage: NSImage(named: "AppIcon") ?? NSApp.applicationIconImage)
+                Image(nsImage: Self.headerAppIcon())
                     .resizable()
                     .interpolation(.high)
+                    .antialiased(true)
+                    .scaledToFit()
                     .frame(width: 44, height: 44)
-                    .shadow(color: Color.cyan.opacity(0.35), radius: 8, y: 2)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(monitor.junkText)
@@ -80,6 +81,63 @@ struct ContentView: View {
                 .frame(height: 4)
             }
         }
+    }
+
+    /// Prefer bundled 1024 PNG so the 44pt header icon stays sharp at @2x/@3x.
+    private static func headerAppIcon() -> NSImage {
+        let pointSize = NSSize(width: 44, height: 44)
+        if let url = Bundle.main.url(forResource: "AppIcon-1024", withExtension: "png"),
+           let src = NSImage(contentsOf: url) {
+            return rasterized(src, toPoints: pointSize)
+        }
+        if let named = NSImage(named: "AppIcon") {
+            return rasterized(named, toPoints: pointSize)
+        }
+        let fallback = NSApp.applicationIconImage ?? NSImage(size: pointSize)
+        return rasterized(fallback, toPoints: pointSize)
+    }
+
+    private static func rasterized(_ source: NSImage, toPoints size: NSSize) -> NSImage {
+        let scale = max(NSScreen.main?.backingScaleFactor ?? 2, 2)
+        let pxW = max(1, Int((size.width * scale).rounded()))
+        let pxH = max(1, Int((size.height * scale).rounded()))
+
+        // Pick the largest available bitmap rep from the source
+        var cgImage: CGImage?
+        if let reps = source.representations as? [NSImageRep] {
+            let best = reps.max(by: { $0.pixelsWide * $0.pixelsHigh < $1.pixelsWide * $1.pixelsHigh })
+            if let bitmap = best as? NSBitmapImageRep {
+                cgImage = bitmap.cgImage
+            }
+        }
+        if cgImage == nil {
+            var rect = NSRect(origin: .zero, size: source.size)
+            cgImage = source.cgImage(forProposedRect: &rect, context: nil, hints: nil)
+        }
+        guard let cg = cgImage else {
+            let copy = source.copy() as? NSImage ?? NSImage(size: size)
+            copy.size = size
+            return copy
+        }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil,
+            width: pxW,
+            height: pxH,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return source
+        }
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: pxW, height: pxH))
+        guard let outCG = ctx.makeImage() else { return source }
+        let out = NSImage(cgImage: outCG, size: size)
+        out.isTemplate = false
+        return out
     }
 
     // MARK: Metrics Card

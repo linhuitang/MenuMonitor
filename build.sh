@@ -16,6 +16,7 @@ mkdir -p "$MACOS_DIR"
 cp "$BIN" "$MACOS_DIR/MenuMonitor"
 mkdir -p "$APP_DIR/Resources"
 cp assets/AppIcon.icns "$APP_DIR/Resources/AppIcon.icns"
+cp assets/AppIcon-1024.png "$APP_DIR/Resources/AppIcon-1024.png"
 
 cat > "$APP_DIR/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
