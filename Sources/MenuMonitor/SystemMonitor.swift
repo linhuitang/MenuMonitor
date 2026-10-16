@@ -34,6 +34,7 @@ final class SystemMonitor: ObservableObject {
     @Published var networkHistory: [SpeedSample] = []
     @Published var diskIOHistory: [SpeedSample] = []
     @Published var isCleaning = false
+    @Published var cleanStatusMessage: String? = nil
     @Published var menuBarIcon: NSImage = SystemMonitor.makeMemBadge(percent: 0)
 
     private var timer: Timer?
@@ -79,17 +80,72 @@ final class SystemMonitor: ObservableObject {
 
     func cleanCaches() {
         isCleaning = true
+        cleanStatusMessage = "正在清理…"
+        let publishedBefore = junkBytes
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-                ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Caches")
-            Self.clearDirectoryContents(at: caches)
+            let before = publishedBefore > 0 ? publishedBefore : Self.estimateJunkBytes()
+            let result = Self.performSafeCleanup()
             let junk = Self.estimateJunkBytes()
             DispatchQueue.main.async {
-                self?.junkBytes = junk
-                self?.isCleaning = false
+                guard let self else { return }
+                self.junkBytes = junk
+                self.isCleaning = false
+                let freed = max(result.freedBytes, before > junk ? before - junk : 0)
+                if result.errorCount > 0 {
+                    NSLog("[MenuMonitor] clean finished with %d errors (see earlier logs)", result.errorCount)
+                }
+                self.cleanStatusMessage = String(
+                    format: "已清理 %@（跳过 %d 项）",
+                    Self.formatBytes(freed),
+                    result.skippedCount
+                )
+                NSLog("[MenuMonitor] clean done freed=%@ junkNow=%@ removed=%d skipped=%d errors=%d",
+                      Self.formatBytes(freed), Self.formatBytes(junk),
+                      result.removedCount, result.skippedCount, result.errorCount)
+                // Clear status after a few seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                    if self?.isCleaning == false {
+                        self?.cleanStatusMessage = nil
+                    }
+                }
             }
         }
     }
+
+    private struct CleanupResult {
+        var freedBytes: UInt64 = 0
+        var removedCount: Int = 0
+        var skippedCount: Int = 0
+        var errorCount: Int = 0
+    }
+
+    /// Safe cleanup: ~/Library/Caches children + own temp files under NSTemporaryDirectory (best-effort).
+    private static func performSafeCleanup() -> CleanupResult {
+        var result = CleanupResult()
+        let fm = FileManager.default
+
+        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Caches")
+        NSLog("[MenuMonitor] cleaning %@", caches.path)
+        clearDirectoryContents(at: caches, result: &result)
+
+        // Only clear contents of the process temp dir that look like caches (not the whole /var/folders tree)
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+        // Be conservative: only remove files directly in tmp that are older-style cache leftovers we own —
+        // skip clearing entire NSTemporaryDirectory (shared). Instead clear known safe subdirs if present.
+        let safeTmpNames = ["MenuMonitor", "com.ankii.menumonitor"]
+        for name in safeTmpNames {
+            let url = tmp.appendingPathComponent(name)
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                NSLog("[MenuMonitor] cleaning %@", url.path)
+                clearDirectoryContents(at: url, result: &result)
+            }
+        }
+
+        return result
+    }
+
 
     func openActivityMonitor() {
         NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
@@ -517,14 +573,10 @@ final class SystemMonitor: ObservableObject {
     // MARK: - Junk estimate
 
     private static func estimateJunkBytes() -> UInt64 {
-        var total: UInt64 = 0
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Caches")
-        total += directorySize(at: caches)
-
-        let trash = URL(fileURLWithPath: NSHomeDirectory() + "/.Trash")
-        total += directorySize(at: trash)
-        return total
+        // Match what 快速清理 actually removes (not Trash)
+        return directorySize(at: caches)
     }
 
     private static func directorySize(at url: URL) -> UInt64 {
@@ -545,11 +597,36 @@ final class SystemMonitor: ObservableObject {
         return size
     }
 
-    private static func clearDirectoryContents(at url: URL) {
+    private static func clearDirectoryContents(at url: URL, result: inout CleanupResult) {
         let fm = FileManager.default
-        guard let items = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) else { return }
+        let items: [URL]
+        do {
+            items = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey], options: [])
+        } catch {
+            NSLog("[MenuMonitor] list failed %@: %@", url.path, String(describing: error))
+            result.errorCount += 1
+            return
+        }
+
+        // Never delete the Caches root itself — only children. Skip well-known sticky/cloud folders lightly.
+        let skipNames: Set<String> = ["CloudKit", ".DS_Store"]
         for item in items {
-            try? fm.removeItem(at: item)
+            let name = item.lastPathComponent
+            if skipNames.contains(name) {
+                result.skippedCount += 1
+                continue
+            }
+            // Size before delete (best-effort)
+            let size = directorySize(at: item)
+            do {
+                try fm.removeItem(at: item)
+                result.removedCount += 1
+                result.freedBytes += size
+            } catch {
+                result.skippedCount += 1
+                result.errorCount += 1
+                NSLog("[MenuMonitor] skip %@: %@", item.path, String(describing: error))
+            }
         }
     }
 

@@ -52,6 +52,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        if args.contains("--clean-now") {
+            let m = SystemMonitor()
+            // Wait for initial junk estimate (async) while pumping main run loop
+            let deadline = Date().addingTimeInterval(3)
+            while m.junkBytes == 0 && Date() < deadline {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+            print("junkBefore=\(m.junkBytes) (\(SystemMonitor.formatBytes(m.junkBytes)))")
+            m.cleanCaches()
+            let cleanDeadline = Date().addingTimeInterval(120)
+            while m.isCleaning && Date() < cleanDeadline {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+            print("junkAfter=\(m.junkBytes) (\(SystemMonitor.formatBytes(m.junkBytes)))")
+            print("status=\(m.cleanStatusMessage ?? "nil")")
+            NSApp.terminate(nil)
+            return
+        }
+
         if args.contains("--print-temp") {
             let m = SystemMonitor()
             if let t = m.cpuTemp {
@@ -96,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 520),
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -107,8 +126,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
-        panel.becomesKeyOnlyIfNeeded = true
+        panel.becomesKeyOnlyIfNeeded = false
         panel.isReleasedWhenClosed = false
+        panel.acceptsMouseMovedEvents = true
 
         let container = NSView(frame: panel.contentRect(forFrameRect: panel.frame))
         container.wantsLayer = true
@@ -170,7 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         panel.setFrameOrigin(NSPoint(x: x, y: y))
-        panel.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
         installDismissalMonitors()
     }
 
@@ -182,17 +203,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installDismissalMonitors() {
         removeDismissalMonitors()
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            self?.closePanel()
+            guard let self, let panel = self.panel else { return }
+            if panel.frame.contains(NSEvent.mouseLocation) { return }
+            self.closePanel()
         }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self, let panel = self.panel else { return event }
-            // Click outside panel content → close (but not on status item button)
-            if let window = event.window, window == panel {
-                return event
+            let loc = NSEvent.mouseLocation
+            if panel.frame.contains(loc) {
+                return event // clicks inside panel (buttons, etc.)
             }
-            if let button = self.statusItem?.button, let bw = button.window, event.window == bw {
-                // Let toggle handle it
-                return event
+            if let button = self.statusItem?.button,
+               let bw = button.window {
+                let btnScreen = bw.convertToScreen(button.convert(button.bounds, to: nil))
+                if btnScreen.contains(loc) {
+                    return event // status item toggles
+                }
             }
             self.closePanel()
             return event

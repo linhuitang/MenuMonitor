@@ -10,7 +10,6 @@ enum MenuMonitorTheme {
 struct ContentView: View {
     @EnvironmentObject var monitor: SystemMonitor
     @State private var selectedTab = 2 // 硬件
-    @State private var showCleanConfirm = false
 
     private let panelRadius: CGFloat = 24
     private let panelBg = Color(red: 239/255, green: 241/255, blue: 244/255) // #EFF1F4
@@ -28,46 +27,78 @@ struct ContentView: View {
         .frame(width: 320)
         .background(panelBg, in: RoundedRectangle(cornerRadius: panelRadius, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: panelRadius, style: .continuous))
-        .alert("确认清理？", isPresented: $showCleanConfirm) {
-            Button("取消", role: .cancel) {}
-            Button("清理", role: .destructive) {
-                monitor.cleanCaches()
-            }
-        } message: {
-            Text("将清理用户缓存目录 ~/Library/Caches 中的内容，系统和其他位置不会改动。")
-        }
     }
 
     // MARK: Header
 
+    @State private var awaitingCleanConfirm = false
+
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(nsImage: NSImage(named: "AppIcon") ?? NSApp.applicationIconImage)
-                .resizable()
-                .interpolation(.high)
-                .frame(width: 44, height: 44)
-                .shadow(color: Color.cyan.opacity(0.35), radius: 8, y: 2)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(nsImage: NSImage(named: "AppIcon") ?? NSApp.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 44, height: 44)
+                    .shadow(color: Color.cyan.opacity(0.35), radius: 8, y: 2)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(monitor.junkText)
-                    .font(.system(size: 13, weight: .medium))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(monitor.junkText)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    if let msg = monitor.cleanStatusMessage, !msg.isEmpty {
+                        Text(msg)
+                            .font(.system(size: 11))
+                            .foregroundStyle(MenuMonitorTheme.metricGreen)
+                            .lineLimit(2)
+                    }
+                }
+
+                Spacer(minLength: 4)
+
+                if awaitingCleanConfirm && !monitor.isCleaning {
+                    HStack(spacing: 8) {
+                        Button("取消") {
+                            awaitingCleanConfirm = false
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+
+                        Button("确认清理") {
+                            awaitingCleanConfirm = false
+                            monitor.cleanCaches()
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(MenuMonitorTheme.metricGreen))
+                        .foregroundStyle(.white)
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    Button {
+                        awaitingCleanConfirm = true
+                        monitor.cleanStatusMessage = nil
+                    } label: {
+                        Text(monitor.isCleaning ? "清理中…" : "快速清理")
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(Color.white))
+                            .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(monitor.isCleaning)
+                }
+            }
+
+            if awaitingCleanConfirm && !monitor.isCleaning {
+                Text("将清理 ~/Library/Caches 与可安全删除的临时文件，不会动系统或其他目录。")
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-
-            Spacer(minLength: 4)
-
-            Button {
-                showCleanConfirm = true
-            } label: {
-                Text(monitor.isCleaning ? "清理中…" : "快速清理")
-                    .font(.system(size: 12, weight: .medium))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Capsule().fill(Color.white))
-                    .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
-            }
-            .buttonStyle(.plain)
-            .disabled(monitor.isCleaning)
         }
     }
 
