@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var showCleanConfirm = false
 
     private let panelRadius: CGFloat = 24
+    private let panelBg = Color(red: 239/255, green: 241/255, blue: 244/255) // #EFF1F4
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -16,14 +17,12 @@ struct ContentView: View {
             systemCard
             footer
         }
-        .padding(14)
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .padding(.bottom, 18)
         .frame(width: 320)
-        .background {
-            RoundedRectangle(cornerRadius: panelRadius, style: .continuous)
-                .fill(.regularMaterial)
-        }
+        .background(panelBg, in: RoundedRectangle(cornerRadius: panelRadius, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: panelRadius, style: .continuous))
-        .background(MenuBarWindowRounder(cornerRadius: panelRadius))
         .alert("确认清理？", isPresented: $showCleanConfirm) {
             Button("取消", role: .cancel) {}
             Button("清理", role: .destructive) {
@@ -110,7 +109,7 @@ struct ContentView: View {
             // ~4 visible rows (28pt + 6pt spacing)
             let maxMem = max(monitor.topApps.first?.memoryBytes ?? 1, 1)
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 6) {
+                VStack(spacing: 6) {
                     ForEach(monitor.topApps) { app in
                         AppMemoryRow(app: app, maxBytes: maxMem)
                     }
@@ -294,33 +293,33 @@ struct MetricColumn: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
-            GeometryReader { geo in
-                ZStack(alignment: .bottom) {
-                    Capsule().fill(Color(white: 0.92))
-                    Capsule()
-                        .fill(color)
-                        .frame(height: max(4, geo.size.height * CGFloat(min(1, max(0, progress)))))
-                }
+            ZStack(alignment: .bottom) {
+                Capsule().fill(Color(white: 0.92))
+                Capsule()
+                    .fill(color)
+                    .frame(height: max(4, 42 * CGFloat(min(1, max(0, progress)))))
             }
             .frame(width: 5, height: 42)
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 HStack(alignment: .firstTextBaseline, spacing: 1) {
                     Text(valueText)
                         .font(.system(size: 26, weight: .bold, design: .rounded))
                         .foregroundStyle(color)
-                        .minimumScaleFactor(0.7)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                     if !unit.isEmpty {
                         Text(unit)
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
                             .foregroundStyle(color.opacity(0.85))
                     }
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
             Spacer(minLength: 0)
         }
@@ -454,82 +453,6 @@ struct LegendDot: View {
         HStack(spacing: 4) {
             Circle().fill(color).frame(width: 7, height: 7)
             Text(label)
-        }
-    }
-}
-
-
-/// Rounds the MenuBarExtra host NSWindow so system material doesn't show square corners.
-struct MenuBarWindowRounder: NSViewRepresentable {
-    var cornerRadius: CGFloat = 24
-
-    func makeNSView(context: Context) -> NSView {
-        let view = TrackerView()
-        view.cornerRadius = cornerRadius
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        (nsView as? TrackerView)?.cornerRadius = cornerRadius
-        DispatchQueue.main.async {
-            (nsView as? TrackerView)?.applyIfNeeded()
-        }
-    }
-
-    final class TrackerView: NSView {
-        var cornerRadius: CGFloat = 24
-        private var appliedToken: ObjectIdentifier?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            applyIfNeeded()
-        }
-
-        override func layout() {
-            super.layout()
-            applyIfNeeded()
-        }
-
-        func applyIfNeeded() {
-            guard let window = window else { return }
-            let token = ObjectIdentifier(window)
-            // Re-apply when window changes or every layout (cheap)
-            Self.style(window: window, radius: cornerRadius)
-            appliedToken = token
-        }
-
-        private static func style(window: NSWindow, radius: CGFloat) {
-            window.isOpaque = false
-            window.backgroundColor = .clear
-            window.hasShadow = true
-
-            func roundLayer(_ view: NSView?) {
-                guard let view else { return }
-                view.wantsLayer = true
-                guard let layer = view.layer else { return }
-                layer.cornerRadius = radius
-                layer.masksToBounds = true
-                layer.cornerCurve = .continuous
-            }
-
-            roundLayer(window.contentView)
-
-            // BFS through a few levels for hosting / visual-effect wrappers
-            guard let root = window.contentView else {
-                window.invalidateShadow()
-                return
-            }
-            var current: [NSView] = root.subviews
-            for _ in 0..<5 {
-                var next: [NSView] = []
-                for v in current {
-                    roundLayer(v)
-                    next.append(contentsOf: v.subviews)
-                }
-                current = next
-                if current.isEmpty { break }
-            }
-            window.invalidateShadow()
         }
     }
 }
