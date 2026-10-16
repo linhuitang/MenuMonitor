@@ -38,10 +38,8 @@ struct ContentView: View {
                 .shadow(color: Color.cyan.opacity(0.35), radius: 8, y: 2)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("守护你的电脑")
-                    .font(.system(size: 15, weight: .semibold))
                 Text(monitor.junkText)
-                    .font(.system(size: 11))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
             }
 
