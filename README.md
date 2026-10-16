@@ -44,11 +44,25 @@ swift build -c release
 - 右键菜单栏图标 → **退出 MenuMonitor**
 - 或终端：`pkill -x MenuMonitor`
 
+## 首次打开（未公证）
+
+本项目以 **ad-hoc 签名**分发，**未经 Apple 公证**。从 GitHub Release 下载 DMG/ZIP 后，若系统提示无法打开：
+
+1. 将 `MenuMonitor.app` 拖到「应用程序」
+2. **右键** App → **打开**（不要双击），在对话框中再点「打开」
+3. 或在终端移除隔离属性后启动：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MenuMonitor.app
+open /Applications/MenuMonitor.app
+```
+
+也可在「系统设置 → 隐私与安全性」中允许仍被拦截的 App。
+
 ## 说明
 
 - 「快速清理」只删除用户 `~/Library/Caches` 下可安全清理的内容，不会动废纸篓或其他目录
 - 待清理体积低于 1 MiB 时显示「没有要清理的垃圾」，并禁用快速清理按钮
-- 本项目以 ad-hoc 签名分发；若 Gatekeeper 拦截，可在「系统设置 → 隐私与安全性」中允许，或自行签名
 
 ## 许可证
 
