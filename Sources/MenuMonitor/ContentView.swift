@@ -539,7 +539,7 @@ private struct SegmentedTabs: View {
                     .offset(x: CGFloat(selection) * segmentW + 2)
                     .animation(.easeInOut(duration: 0.18), value: selection)
 
-                // Labels + hit targets
+                // Labels + hit targets (full segment area clickable)
                 HStack(spacing: 0) {
                     ForEach(Array(titles.enumerated()), id: \.offset) { i, title in
                         Button {
@@ -551,8 +551,11 @@ private struct SegmentedTabs: View {
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
                     }
                 }
             }
