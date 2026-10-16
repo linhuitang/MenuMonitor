@@ -7,6 +7,8 @@ enum MenuMonitorTheme {
     static let metricGreen = Color(red: 66/255, green: 212/255, blue: 131/255)
     /// Link / action text (#539AFF)
     static let linkBlue = Color(red: 83/255, green: 154/255, blue: 255/255)
+    /// Primary label / tab text (#4D4D4D)
+    static let labelGray = Color(red: 77/255, green: 77/255, blue: 77/255)
 }
 
 struct ContentView: View {
@@ -78,6 +80,7 @@ struct ContentView: View {
                 } label: {
                     Text(monitor.isCleaning ? "清理中…" : "快速清理")
                         .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(MenuMonitorTheme.labelGray)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(Capsule().fill(Color.white))
@@ -182,14 +185,11 @@ struct ContentView: View {
                 Text("系统监控")
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
-                Picker("", selection: $selectedTab) {
-                    Text("磁盘 I/O").tag(0)
-                    Text("网络").tag(1)
-                    Text("硬件").tag(2)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 190)
-                .labelsHidden()
+                SegmentedTabs(
+                    titles: ["磁盘 I/O", "网络", "硬件"],
+                    selection: $selectedTab
+                )
+                .frame(width: 190, height: 26)
             }
 
             Group {
@@ -506,6 +506,57 @@ struct LegendDot: View {
         HStack(spacing: 4) {
             Circle().fill(color).frame(width: 7, height: 7)
             Text(label)
+        }
+    }
+}
+
+/// Custom segmented control: light gray track, white selected pill, #4D4D4D labels.
+private struct SegmentedTabs: View {
+    let titles: [String]
+    @Binding var selection: Int
+
+    var body: some View {
+        GeometryReader { geo in
+            let count = max(titles.count, 1)
+            let segmentW = geo.size.width / CGFloat(count)
+            ZStack(alignment: .leading) {
+                // Track
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color(red: 232/255, green: 234/255, blue: 238/255)) // light gray
+
+                // Thin separators between segments (pill covers neighbors)
+                ForEach(1..<count, id: \.self) { i in
+                    Rectangle()
+                        .fill(Color.black.opacity(0.10))
+                        .frame(width: 1, height: 14)
+                        .position(x: CGFloat(i) * segmentW, y: geo.size.height / 2)
+                }
+
+                // Selected pill
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.10), radius: 2, y: 1)
+                    .frame(width: max(0, segmentW - 4), height: max(0, geo.size.height - 4))
+                    .offset(x: CGFloat(selection) * segmentW + 2)
+                    .animation(.easeInOut(duration: 0.18), value: selection)
+
+                // Labels + hit targets
+                HStack(spacing: 0) {
+                    ForEach(Array(titles.enumerated()), id: \.offset) { i, title in
+                        Button {
+                            selection = i
+                        } label: {
+                            Text(title)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(MenuMonitorTheme.labelGray)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
         }
     }
 }
