@@ -5,6 +5,11 @@ import IOKit
 import IOKit.storage
 import CoreText
 
+extension Notification.Name {
+    /// Ask AppDelegate to orderOut the status-bar panel before launching another app.
+    static let menuMonitorDismissPanel = Notification.Name("MenuMonitorDismissPanel")
+}
+
 struct AppMemoryInfo: Identifiable {
     let id: Int // primary PID
     let name: String
@@ -278,11 +283,21 @@ final class SystemMonitor: ObservableObject {
 
 
     func openActivityMonitor() {
-        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
+        Self.dismissStatusPanelThen {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
+        }
     }
 
     func openSystemInformation() {
-        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/System Information.app"))
+        Self.dismissStatusPanelThen {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/System Information.app"))
+        }
+    }
+
+    /// Close the menu-bar panel first, then run the action (next runloop so orderOut applies).
+    private static func dismissStatusPanelThen(_ action: @escaping () -> Void) {
+        NotificationCenter.default.post(name: .menuMonitorDismissPanel, object: nil)
+        DispatchQueue.main.async(execute: action)
     }
 
     // MARK: - CPU
