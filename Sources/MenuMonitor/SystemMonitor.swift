@@ -5,11 +5,6 @@ import IOKit
 import IOKit.storage
 import CoreText
 
-extension Notification.Name {
-    /// Ask AppDelegate to orderOut the status-bar panel before launching another app.
-    static let menuMonitorDismissPanel = Notification.Name("MenuMonitorDismissPanel")
-}
-
 struct AppMemoryInfo: Identifiable {
     let id: Int // primary PID
     let name: String
@@ -291,21 +286,28 @@ final class SystemMonitor: ObservableObject {
 
 
     func openActivityMonitor() {
-        Self.dismissStatusPanelThen {
+        dismissPanelThenOpen {
             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
         }
     }
 
     func openSystemInformation() {
-        Self.dismissStatusPanelThen {
+        dismissPanelThenOpen {
             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/System Information.app"))
         }
     }
 
-    /// Close the menu-bar panel first, then run the action (next runloop so orderOut applies).
-    private static func dismissStatusPanelThen(_ action: @escaping () -> Void) {
-        NotificationCenter.default.post(name: .menuMonitorDismissPanel, object: nil)
-        DispatchQueue.main.async(execute: action)
+    /// Close the real status-bar panel on the main queue, then open the external app.
+    private func dismissPanelThenOpen(_ action: @escaping () -> Void) {
+        let run = {
+            PanelController.shared.close(reason: "externalApp")
+            action()
+        }
+        if Thread.isMainThread {
+            run()
+        } else {
+            DispatchQueue.main.async(execute: run)
+        }
     }
 
     // MARK: - CPU

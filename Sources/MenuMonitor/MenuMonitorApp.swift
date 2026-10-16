@@ -21,10 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: NSPanel?
     private var hosting: NSHostingView<AnyView>?
     private var iconObs: NSKeyValueObservation?
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
     private var iconTimer: Timer?
-    private var dismissObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = CommandLine.arguments
@@ -115,6 +112,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        if args.contains("--test-panel-close") {
+            // Build a real panel path identical to production, then close and verify.
+            NSApp.setActivationPolicy(.accessory)
+            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            self.statusItem = item
+            setupPanel()
+            openPanel()
+            let before = PanelController.shared.isVisible
+            PanelController.shared.close(reason: "test-panel-close")
+            let after = PanelController.shared.isVisible
+            let panelVis = panel?.isVisible ?? false
+            print("test-panel-close before=\(before) afterShared=\(after) afterPanel=\(panelVis)")
+            NSLog("[MenuMonitor] test-panel-close before=%d afterShared=%d afterPanel=%d", before, after, panelVis)
+            if after || panelVis {
+                fputs("FAIL: panel still visible after close\n", stderr)
+                exit(1)
+            }
+            print("test-panel-close OK")
+            NSApp.terminate(nil)
+            return
+        }
+
         NSApp.setActivationPolicy(.accessory)
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -172,6 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         self.panel = panel
         self.hosting = hostingView
+        PanelController.shared.attach(panel: panel, statusButton: statusItem?.button)
 
         // Size to fitting size once content lays out
         DispatchQueue.main.async { [weak self] in
@@ -228,77 +248,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePanel(_ sender: Any?) {
-        guard let panel else { return }
-        if panel.isVisible {
-            closePanel()
+        if PanelController.shared.isVisible {
+            PanelController.shared.close(reason: "statusItemToggle")
         } else {
             openPanel()
         }
     }
 
     private func openPanel() {
-        guard let panel, let button = statusItem?.button else { return }
-        relayoutPanel()
-
-        // Position under status item, right-aligned to button
-        button.window?.layoutIfNeeded()
-        let buttonRect = button.window?.convertToScreen(button.convert(button.bounds, to: nil))
-            ?? NSRect(x: 100, y: 100, width: 30, height: 22)
-        let size = panel.frame.size
-        var x = buttonRect.midX - size.width / 2
-        let y = buttonRect.minY - size.height - 6
-
-        // Keep on screen
-        if let screen = button.window?.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            x = min(max(x, visible.minX + 8), visible.maxX - size.width - 8)
-        }
-
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
-        installDismissalMonitors()
-    }
-
-    private func closePanel() {
-        panel?.orderOut(nil)
-        removeDismissalMonitors()
-    }
-
-    private func installDismissalMonitors() {
-        removeDismissalMonitors()
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            guard let self, let panel = self.panel else { return }
-            if panel.frame.contains(NSEvent.mouseLocation) { return }
-            self.closePanel()
-        }
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard let self, let panel = self.panel else { return event }
-            let loc = NSEvent.mouseLocation
-            if panel.frame.contains(loc) {
-                return event // clicks inside panel (buttons, etc.)
-            }
-            if let button = self.statusItem?.button,
-               let bw = button.window {
-                let btnScreen = bw.convertToScreen(button.convert(button.bounds, to: nil))
-                if btnScreen.contains(loc) {
-                    return event // status item toggles
-                }
-            }
-            self.closePanel()
-            return event
-        }
-    }
-
-    private func removeDismissalMonitors() {
-        if let g = globalMonitor {
-            NSEvent.removeMonitor(g)
-            globalMonitor = nil
-        }
-        if let l = localMonitor {
-            NSEvent.removeMonitor(l)
-            localMonitor = nil
-        }
+        guard let panel else { return }
+        PanelController.shared.attach(panel: panel, statusButton: statusItem?.button)
+        PanelController.shared.open(afterRelayout: { [weak self] in
+            self?.relayoutPanel()
+        })
     }
 
     static func writePNG(image: NSImage, to path: String) {
