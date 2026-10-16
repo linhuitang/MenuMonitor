@@ -52,6 +52,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        if args.contains("--print-temp") {
+            let m = SystemMonitor()
+            if let t = m.cpuTemp {
+                print(String(format: "cpuTemp=%.1f", t))
+            } else {
+                print("cpuTemp=nil")
+            }
+            NSApp.terminate(nil)
+            return
+        }
+
         NSApp.setActivationPolicy(.accessory)
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)

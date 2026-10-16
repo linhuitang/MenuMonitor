@@ -165,36 +165,81 @@ final class SystemMonitor: ObservableObject {
 
     // MARK: - Temperature (Apple Silicon via IOHID)
 
-    private static func readCPUTemperature() -> Double? {
-        // Best-effort private API via dlsym; crash-safe with nil returns
-        typealias CreateFn = @convention(c) (CFAllocator?, CFDictionary?) -> UnsafeMutableRawPointer?
-        typealias CopyServicesFn = @convention(c) (UnsafeMutableRawPointer?, Int64) -> CFArray?
-        typealias CopyPropertyFn = @convention(c) (UnsafeMutableRawPointer?, CFString?) -> CFTypeRef?
-        typealias SetMatchingFn = @convention(c) (UnsafeMutableRawPointer?, CFDictionary?) -> Void
-        typealias GetValueFn = @convention(c) (UnsafeMutableRawPointer?, Int64, Int64) -> UnsafeMutableRawPointer?
-        typealias GetFloatFn = @convention(c) (UnsafeMutableRawPointer?, Int32) -> Double
+    private struct SMCKeyData_vers_t {
+        var major: UInt8 = 0
+        var minor: UInt8 = 0
+        var build: UInt8 = 0
+        var reserved0: UInt8 = 0
+        var reserved1: UInt8 = 0
+        var release: UInt16 = 0
+    }
 
-        let handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_LAZY)
-        guard handle != nil else { return nil }
-        defer { /* keep loaded */ }
+    private struct SMCKeyData_pLimitData_t {
+        var version: UInt16 = 0
+        var length: UInt16 = 0
+        var cpuPLimit: UInt32 = 0
+        var gpuPLimit: UInt32 = 0
+        var memPLimit: UInt32 = 0
+    }
+
+    private struct SMCKeyData_keyInfo_t {
+        var dataSize: UInt32 = 0
+        var dataType: UInt32 = 0
+        var dataAttributes: UInt8 = 0
+    }
+
+    private struct SMCKeyData_t {
+        var key: UInt32 = 0
+        var vers = SMCKeyData_vers_t()
+        var pLimitData = SMCKeyData_pLimitData_t()
+        var keyInfo = SMCKeyData_keyInfo_t()
+        var result: UInt8 = 0
+        var status: UInt8 = 0
+        var data8: UInt8 = 0
+        var data32: UInt32 = 0
+        var bytes: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
+                    UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
+                    UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
+                    UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) =
+            (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+    }
+
+    private static func readCPUTemperature() -> Double? {
+        if let t = readTemperatureViaIOHID() { return t }
+        if let t = readTemperatureViaSMC() { return t }
+        return nil
+    }
+
+    /// Apple Silicon thermal sensors via private IOHIDEventSystemClient (no root).
+    private static func readTemperatureViaIOHID() -> Double? {
+        typealias Client = UnsafeMutableRawPointer
+        typealias Service = UnsafeMutableRawPointer
+        typealias Event = UnsafeMutableRawPointer
+        typealias CreateFn = @convention(c) (CFAllocator?) -> Client?
+        typealias SetMatchingFn = @convention(c) (Client?, CFDictionary?) -> Void
+        typealias CopyServicesFn = @convention(c) (Client?) -> Unmanaged<CFArray>?
+        typealias CopyPropertyFn = @convention(c) (Service?, CFString?) -> Unmanaged<CFTypeRef>?
+        typealias CopyEventFn = @convention(c) (Service?, Int64, Int64) -> Event?
+        typealias GetFloatFn = @convention(c) (Event?, Int32) -> Double
+
+        guard let handle = dlopen("/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit", RTLD_LAZY) else {
+            return nil
+        }
+
+        func load<T>(_ name: String) -> T? {
+            guard let sym = dlsym(handle, name) else { return nil }
+            return unsafeBitCast(sym, to: T.self)
+        }
 
         guard
-            let createSym = dlsym(handle, "IOHIDEventSystemClientCreate"),
-            let setMatchingSym = dlsym(handle, "IOHIDEventSystemClientSetMatching"),
-            let copyServicesSym = dlsym(handle, "IOHIDEventSystemClientCopyServices"),
-            let copyPropSym = dlsym(handle, "IOHIDServiceClientCopyProperty"),
-            let copyEventSym = dlsym(handle, "IOHIDServiceClientCopyEvent"),
-            let getFloatSym = dlsym(handle, "IOHIDEventGetFloatValue")
+            let create: CreateFn = load("IOHIDEventSystemClientCreate"),
+            let setMatching: SetMatchingFn = load("IOHIDEventSystemClientSetMatching"),
+            let copyServices: CopyServicesFn = load("IOHIDEventSystemClientCopyServices"),
+            let copyProperty: CopyPropertyFn = load("IOHIDServiceClientCopyProperty"),
+            let copyEvent: CopyEventFn = load("IOHIDServiceClientCopyEvent"),
+            let getFloat: GetFloatFn = load("IOHIDEventGetFloatValue"),
+            let client = create(kCFAllocatorDefault)
         else { return nil }
-
-        let create = unsafeBitCast(createSym, to: CreateFn.self)
-        let setMatching = unsafeBitCast(setMatchingSym, to: SetMatchingFn.self)
-        let copyServices = unsafeBitCast(copyServicesSym, to: CopyServicesFn.self)
-        let copyProperty = unsafeBitCast(copyPropSym, to: CopyPropertyFn.self)
-        let copyEvent = unsafeBitCast(copyEventSym, to: GetValueFn.self)
-        let getFloat = unsafeBitCast(getFloatSym, to: GetFloatFn.self)
-
-        guard let client = create(kCFAllocatorDefault, nil) else { return nil }
 
         let matching: [String: Any] = [
             "PrimaryUsagePage": 0xff00,
@@ -202,33 +247,99 @@ final class SystemMonitor: ObservableObject {
         ]
         setMatching(client, matching as CFDictionary)
 
-        guard let services = copyServices(client, 0) as? [UnsafeMutableRawPointer], !services.isEmpty else {
-            return nil
-        }
+        guard let services = copyServices(client)?.takeRetainedValue() else { return nil }
+        let count = CFArrayGetCount(services)
+        guard count > 0 else { return nil }
 
-        // Prefer CPU / SOC related sensors
-        var temps: [Double] = []
-        for service in services {
-            let nameRef = copyProperty(service, "Product" as CFString)
-            let name = (nameRef as? String) ?? ""
-            // Event type 15 = temperature (kIOHIDEventTypeTemperature)
+        var preferred: [Double] = []
+        var others: [Double] = []
+
+        for i in 0..<count {
+            guard let raw = CFArrayGetValueAtIndex(services, i) else { continue }
+            let service = UnsafeMutableRawPointer(mutating: raw)
+
+            var name = ""
+            if let pref = copyProperty(service, "Product" as CFString)?.takeUnretainedValue(),
+               CFGetTypeID(pref) == CFStringGetTypeID() {
+                name = (pref as! String)
+            }
+
+            // kIOHIDEventTypeTemperature = 15
             guard let event = copyEvent(service, 15, 0) else { continue }
-            // Field = (15 << 16) for temperature value
-            let value = getFloat(event, Int32(15 << 16))
-            // Values often in Celsius already; sometimes Kelvin — normalize
-            var celsius = value
-            if celsius > 200 { celsius -= 273.15 }
-            if celsius < 0 || celsius > 150 { continue }
+            var value = getFloat(event, Int32(15 << 16))
+            if value > 200 { value -= 273.15 } // Kelvin → °C if needed
+            guard value.isFinite, value >= 0, value <= 120 else { continue }
 
             let lower = name.lowercased()
-            if lower.contains("cpu") || lower.contains("soc") || lower.contains("die") || lower.contains("tdie") {
-                temps.insert(celsius, at: 0)
-            } else {
-                temps.append(celsius)
+            if lower.contains("tdie") || lower.contains("pacc") || lower.contains("eacc") {
+                preferred.append(value)
+            } else if lower.contains("soc") || lower.contains("die") || lower.contains("cpu") {
+                others.insert(value, at: 0)
+            } else if !lower.contains("battery") && !lower.contains("nand") && !lower.contains("gas") {
+                others.append(value)
             }
         }
 
-        return temps.first
+        let pool = preferred.isEmpty ? others : preferred
+        guard !pool.isEmpty else { return nil }
+        // Average preferred die/performance-cluster sensors
+        return pool.reduce(0, +) / Double(pool.count)
+    }
+
+    /// Fallback: AppleSMC user-client read of common CPU/SoC temp keys (no sudo on many Macs).
+    private static func readTemperatureViaSMC() -> Double? {
+        let keys = ["Tp09", "Tp0T", "Tp01", "Tp05", "Tp0D", "TC0P", "Te05", "Te0F"]
+        for key in keys {
+            if let t = smcReadTemperature(key: key), t >= 0, t <= 120 {
+                return t
+            }
+        }
+        return nil
+    }
+
+    private static func smcReadTemperature(key: String) -> Double? {
+        // Minimal SMC read via IOService "AppleSMC"
+        let serviceName = "AppleSMC"
+        guard let matching = IOServiceMatching(serviceName) else { return nil }
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+
+        var conn: io_connect_t = 0
+        guard IOServiceOpen(service, mach_task_self_, 0, &conn) == KERN_SUCCESS else { return nil }
+        defer { IOServiceClose(conn) }
+
+        // SMCKeyData / SMCVal structures (packed)
+        // Using a simplified approach: many modern macOS builds restrict SMC;
+        // return nil if the call fails.
+        var input = SMCKeyData_t()
+        var output = SMCKeyData_t()
+        input.key = Self.smcFourCharCode(key)
+        input.data8 = 5 // KERNEL_INDEX_SMC = 5? Actually SELECTOR read = 2 for key info then 2?
+        // Standard sequence: data8 = 9 (SMC_CMD_READ_KEYINFO) then READ_BYTES
+        input.data8 = 9 // READ_KEYINFO
+        var outSize = MemoryLayout<SMCKeyData_t>.stride
+        let kr1 = IOConnectCallStructMethod(conn, 2, &input, MemoryLayout<SMCKeyData_t>.stride, &output, &outSize)
+        guard kr1 == KERN_SUCCESS else { return nil }
+
+        input.keyInfo.dataSize = output.keyInfo.dataSize
+        input.data8 = 5 // READ_BYTES
+        outSize = MemoryLayout<SMCKeyData_t>.stride
+        let kr2 = IOConnectCallStructMethod(conn, 2, &input, MemoryLayout<SMCKeyData_t>.stride, &output, &outSize)
+        guard kr2 == KERN_SUCCESS else { return nil }
+
+        // SP78 format: bytes[0] integer, bytes[1] fraction
+        let b0 = Double(output.bytes.0)
+        let b1 = Double(output.bytes.1)
+        return b0 + b1 / 256.0
+    }
+
+    private static func smcFourCharCode(_ s: String) -> UInt32 {
+        var result: UInt32 = 0
+        for (i, ch) in s.utf8.enumerated() where i < 4 {
+            result |= UInt32(ch) << (8 * (3 - i))
+        }
+        return result
     }
 
     // MARK: - Top Apps Memory
