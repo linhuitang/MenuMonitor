@@ -393,61 +393,82 @@ final class SystemMonitor: ObservableObject {
     }
 
     static func makeMemBadge(percent: Double) -> NSImage {
-        let logicalW: CGFloat = 36
-        let logicalH: CGFloat = 18
-        let scale: CGFloat = 2
-        let size = NSSize(width: logicalW, height: logicalH)
-        let pixelW = Int(logicalW * scale)
-        let pixelH = Int(logicalH * scale)
+        let percentStr = String(format: "%.0f%%", percent) as NSString
+        let memStr = "MEM" as NSString
 
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        guard let bitmap = CGContext(
-            data: nil,
-            width: pixelW,
-            height: pixelH,
-            bitsPerComponent: 8,
+        let percentFont = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold)
+        let memFont = NSFont.systemFont(ofSize: 7, weight: .medium)
+
+        let percentAttrs: [NSAttributedString.Key: Any] = [
+            .font: percentFont,
+            .foregroundColor: NSColor.black
+        ]
+        let memAttrs: [NSAttributedString.Key: Any] = [
+            .font: memFont,
+            .foregroundColor: NSColor.black,
+            .kern: 0.6
+        ]
+
+        let percentSize = percentStr.size(withAttributes: percentAttrs)
+        let memSize = memStr.size(withAttributes: memAttrs)
+
+        let percentLineH = ceil(percentFont.ascender - percentFont.descender)
+        let memLineH = ceil(memFont.ascender - memFont.descender)
+        let gap: CGFloat = 1
+        let padX: CGFloat = 2
+        let padY: CGFloat = 1
+
+        let contentW = max(percentSize.width, memSize.width)
+        let logicalW = ceil(contentW + padX * 2)
+        let logicalH = min(22, ceil(percentLineH + memLineH + gap + padY * 2))
+        let size = NSSize(width: logicalW, height: logicalH)
+
+        let scale: CGFloat = 2
+        let pixelsWide = Int(logicalW * scale)
+        let pixelsHigh = Int(logicalH * scale)
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixelsWide,
+            pixelsHigh: pixelsHigh,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
             bytesPerRow: 0,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            bitsPerPixel: 0
         ) else {
             return NSImage(size: size)
         }
-
-        bitmap.translateBy(x: 0, y: CGFloat(pixelH))
-        bitmap.scaleBy(x: scale, y: -scale)
-
-        let rect = CGRect(x: 0, y: 0, width: logicalW, height: logicalH)
-        let round = CGPath(roundedRect: rect, cornerWidth: 4, cornerHeight: 4, transform: nil)
-        bitmap.setFillColor(red: 30/255, green: 110/255, blue: 126/255, alpha: 1)
-        bitmap.addPath(round)
-        bitmap.fillPath()
-
-        let percentText = String(format: "%.0f%%", percent) as NSString
-        let memText = "MEM" as NSString
-        let percentAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .bold),
-            .foregroundColor: NSColor.white
-        ]
-        let memAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 7.5, weight: .medium),
-            .foregroundColor: NSColor.white
-        ]
-        let pSize = percentText.size(withAttributes: percentAttrs)
-        let mSize = memText.size(withAttributes: memAttrs)
+        rep.size = size // point size
 
         NSGraphicsContext.saveGraphicsState()
-        let nsCtx = NSGraphicsContext(cgContext: bitmap, flipped: true)
-        NSGraphicsContext.current = nsCtx
-        // With flipped context, y=0 is top
-        let pY: CGFloat = 0.5
-        let mY: CGFloat = logicalH - mSize.height - 0.5
-        percentText.draw(at: NSPoint(x: (logicalW - pSize.width) / 2, y: pY), withAttributes: percentAttrs)
-        memText.draw(at: NSPoint(x: (logicalW - mSize.width) / 2, y: mY), withAttributes: memAttrs)
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else {
+            NSGraphicsContext.restoreGraphicsState()
+            return NSImage(size: size)
+        }
+        NSGraphicsContext.current = ctx
+        ctx.cgContext.interpolationQuality = .high
+        ctx.imageInterpolation = .high
+        // Flip to top-left origin for easier layout
+        ctx.cgContext.translateBy(x: 0, y: CGFloat(pixelsHigh))
+        ctx.cgContext.scaleBy(x: scale, y: -scale)
+
+        // Clear transparent (no background)
+        ctx.cgContext.clear(CGRect(x: 0, y: 0, width: logicalW, height: logicalH))
+
+        let percentX = (logicalW - percentSize.width) / 2
+        let memX = (logicalW - memSize.width) / 2
+        let percentY = padY
+        let memY = padY + percentLineH + gap
+
+        percentStr.draw(at: NSPoint(x: percentX, y: percentY), withAttributes: percentAttrs)
+        memStr.draw(at: NSPoint(x: memX, y: memY), withAttributes: memAttrs)
         NSGraphicsContext.restoreGraphicsState()
 
-        guard let cgImage = bitmap.makeImage() else { return NSImage(size: size) }
-        let image = NSImage(cgImage: cgImage, size: size)
-        image.isTemplate = false
+        let image = NSImage(size: size)
+        image.addRepresentation(rep)
+        image.isTemplate = true
         return image
     }
 
