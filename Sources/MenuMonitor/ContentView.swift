@@ -83,60 +83,19 @@ struct ContentView: View {
         }
     }
 
-    /// Prefer bundled 1024 PNG so the 44pt header icon stays sharp at @2x/@3x.
+    /// Prefer bundled 1024 PNG; keep full-res reps so SwiftUI can downscale sharply with alpha intact.
     private static func headerAppIcon() -> NSImage {
-        let pointSize = NSSize(width: 44, height: 44)
         if let url = Bundle.main.url(forResource: "AppIcon-1024", withExtension: "png"),
            let src = NSImage(contentsOf: url) {
-            return rasterized(src, toPoints: pointSize)
+            // Keep pixel size 1024; point size can stay native — SwiftUI .resizable scales it.
+            return src
         }
         if let named = NSImage(named: "AppIcon") {
-            return rasterized(named, toPoints: pointSize)
+            return named
         }
-        let fallback = NSApp.applicationIconImage ?? NSImage(size: pointSize)
-        return rasterized(fallback, toPoints: pointSize)
+        return NSApp.applicationIconImage ?? NSImage(size: NSSize(width: 44, height: 44))
     }
 
-    private static func rasterized(_ source: NSImage, toPoints size: NSSize) -> NSImage {
-        let scale = max(NSScreen.main?.backingScaleFactor ?? 2, 2)
-        let pxW = max(1, Int((size.width * scale).rounded()))
-        let pxH = max(1, Int((size.height * scale).rounded()))
-
-        // Pick the largest available bitmap rep from the source
-        var cgImage: CGImage?
-        if let best = source.representations.max(by: { $0.pixelsWide * $0.pixelsHigh < $1.pixelsWide * $1.pixelsHigh }),
-           let bitmap = best as? NSBitmapImageRep {
-            cgImage = bitmap.cgImage
-        }
-        if cgImage == nil {
-            var rect = NSRect(origin: .zero, size: source.size)
-            cgImage = source.cgImage(forProposedRect: &rect, context: nil, hints: nil)
-        }
-        guard let cg = cgImage else {
-            let copy = source.copy() as? NSImage ?? NSImage(size: size)
-            copy.size = size
-            return copy
-        }
-
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        guard let ctx = CGContext(
-            data: nil,
-            width: pxW,
-            height: pxH,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            return source
-        }
-        ctx.interpolationQuality = .high
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: pxW, height: pxH))
-        guard let outCG = ctx.makeImage() else { return source }
-        let out = NSImage(cgImage: outCG, size: size)
-        out.isTemplate = false
-        return out
-    }
 
     // MARK: Metrics Card
 
