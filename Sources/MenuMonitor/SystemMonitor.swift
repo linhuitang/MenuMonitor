@@ -395,40 +395,21 @@ final class SystemMonitor: ObservableObject {
 
     static func makeMemBadge(percent: Double) -> NSImage {
         let percentText = String(format: "%.0f%%", percent)
-        let memText = "MEM"
 
-        let percentFont = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold)
-        let memFont = NSFont.systemFont(ofSize: 7, weight: .medium)
-
-        let percentAttr = NSAttributedString(string: percentText, attributes: [
-            .font: percentFont,
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
             .foregroundColor: NSColor.black
-        ])
-        let memAttr = NSAttributedString(string: memText, attributes: [
-            .font: memFont,
-            .foregroundColor: NSColor.black,
-            .kern: 0.6
-        ])
+        ]
+        let attrStr = NSAttributedString(string: percentText, attributes: attrs)
+        let line = CTLineCreateWithAttributedString(attrStr)
 
-        let percentLine = CTLineCreateWithAttributedString(percentAttr)
-        let memLine = CTLineCreateWithAttributedString(memAttr)
+        var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
+        let width = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
 
-        var percentAscent: CGFloat = 0, percentDescent: CGFloat = 0, percentLeading: CGFloat = 0
-        let percentWidth = CGFloat(CTLineGetTypographicBounds(percentLine, &percentAscent, &percentDescent, &percentLeading))
-        var memAscent: CGFloat = 0, memDescent: CGFloat = 0, memLeading: CGFloat = 0
-        let memWidth = CGFloat(CTLineGetTypographicBounds(memLine, &memAscent, &memDescent, &memLeading))
-
-        // Measure real ink relative to baseline by rasterizing each line alone @2x
-        let pInk = Self.measureInk(line: percentLine, width: percentWidth, ascent: percentAscent, descent: percentDescent)
-        let mInk = Self.measureInk(line: memLine, width: memWidth, ascent: memAscent, descent: memDescent)
-
-        let gap: CGFloat = 1 // ~1pt between ink bottom of % and ink top of MEM
         let padX: CGFloat = 2
-
-        let logicalW = ceil(max(percentWidth, memWidth) + padX * 2)
+        let logicalW = ceil(width + padX * 2)
         let logicalH: CGFloat = 22
-        let blockH = (pInk.maxY - pInk.minY) + gap + (mInk.maxY - mInk.minY)
-        let blockTop = max(0, (logicalH - blockH) / 2)
         let size = NSSize(width: logicalW, height: logicalH)
 
         let scale: CGFloat = 2
@@ -455,80 +436,16 @@ final class SystemMonitor: ObservableObject {
         cg.clear(CGRect(x: 0, y: 0, width: logicalW, height: logicalH))
         cg.setFillColor(NSColor.black.cgColor)
 
-        let percentInkTop = logicalH - blockTop
-        let percentBaseline = percentInkTop - pInk.maxY
-        let percentInkBottom = percentBaseline + pInk.minY
-        let memInkTop = percentInkBottom - gap
-        let memBaseline = memInkTop - mInk.maxY
-
-        cg.textPosition = CGPoint(x: (logicalW - percentWidth) / 2, y: percentBaseline)
-        CTLineDraw(percentLine, cg)
-        cg.textPosition = CGPoint(x: (logicalW - memWidth) / 2, y: memBaseline)
-        CTLineDraw(memLine, cg)
-
-        if CommandLine.arguments.contains("--render-label-preview") {
-            fputs(String(format: "metrics w=%.1f h=%.1f blockH=%.1f blockTop=%.1f pInk=%.2f..%.2f mInk=%.2f..%.2f pBase=%.2f mBase=%.2f gap=%.1f\n",
-                         logicalW, logicalH, blockH, blockTop, pInk.minY, pInk.maxY, mInk.minY, mInk.maxY,
-                         percentBaseline, memBaseline, gap), stderr)
-        }
+        // Vertically center using typographic bounds
+        let textH = ascent + descent
+        let baseline = (logicalH - textH) / 2 + descent
+        cg.textPosition = CGPoint(x: (logicalW - width) / 2, y: baseline)
+        CTLineDraw(line, cg)
 
         guard let cgImage = cg.makeImage() else { return NSImage(size: size) }
         let image = NSImage(cgImage: cgImage, size: size)
         image.isTemplate = true
         return image
-    }
-
-    /// Ink minY/maxY relative to baseline (bottom-left), in points.
-    private static func measureInk(line: CTLine, width: CGFloat, ascent: CGFloat, descent: CGFloat) -> (minY: CGFloat, maxY: CGFloat) {
-        let scale: CGFloat = 2
-        let pad: CGFloat = 2
-        let w = max(1, ceil(width) + pad * 2)
-        let h = max(1, ceil(ascent + descent) + pad * 2)
-        let pxW = Int(w * scale)
-        let pxH = Int(h * scale)
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        guard let cg = CGContext(
-            data: nil,
-            width: pxW,
-            height: pxH,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ), let data = cg.data else {
-            return (-descent, ascent)
-        }
-
-        cg.setShouldAntialias(true)
-        cg.scaleBy(x: scale, y: scale)
-        cg.textMatrix = .identity
-        cg.clear(CGRect(x: 0, y: 0, width: w, height: h))
-        cg.setFillColor(NSColor.black.cgColor)
-        let baseline = pad + descent
-        cg.textPosition = CGPoint(x: pad, y: baseline)
-        CTLineDraw(line, cg)
-
-        let bytesPerRow = cg.bytesPerRow
-        let ptr = data.bindMemory(to: UInt8.self, capacity: bytesPerRow * pxH)
-        var minPy = pxH, maxPy = -1
-        let thr = 20
-        for y in 0..<pxH {
-            var hit = false
-            let row = y * bytesPerRow
-            for x in 0..<pxW {
-                if ptr[row + x * 4 + 3] > thr { hit = true; break }
-            }
-            if hit {
-                if y < minPy { minPy = y }
-                if y > maxPy { maxPy = y }
-            }
-        }
-        guard maxPy >= minPy else { return (-descent, ascent) }
-
-        // Context origin bottom-left; pixel y=0 is bottom
-        let inkMinY = CGFloat(minPy) / scale - baseline
-        let inkMaxY = CGFloat(maxPy + 1) / scale - baseline
-        return (inkMinY, inkMaxY)
     }
 
     static func formatBytes(_ bytes: UInt64) -> String {
