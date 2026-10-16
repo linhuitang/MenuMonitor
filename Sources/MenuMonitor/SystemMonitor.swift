@@ -418,14 +418,13 @@ final class SystemMonitor: ObservableObject {
         var memAscent: CGFloat = 0, memDescent: CGFloat = 0, memLeading: CGFloat = 0
         let memWidth = CGFloat(CTLineGetTypographicBounds(memLine, &memAscent, &memDescent, &memLeading))
 
-        let percentLineH = ceil(percentAscent + percentDescent)
-        let memLineH = ceil(memAscent + memDescent)
-        let gap: CGFloat = 1
+        let gap: CGFloat = 1 // ~1pt between bottom of % glyphs and top of MEM glyphs
         let padX: CGFloat = 2
-        let padY: CGFloat = 1
 
         let logicalW = ceil(max(percentWidth, memWidth) + padX * 2)
-        let logicalH = min(22, ceil(percentLineH + memLineH + gap + padY * 2))
+        let logicalH: CGFloat = 22
+        let blockH = percentAscent + percentDescent + gap + memAscent + memDescent
+        let blockTop = max(0, (logicalH - blockH) / 2)
         let size = NSSize(width: logicalW, height: logicalH)
 
         let scale: CGFloat = 2
@@ -447,29 +446,24 @@ final class SystemMonitor: ObservableObject {
         cg.setShouldAntialias(true)
         cg.setAllowsFontSmoothing(true)
         cg.setShouldSmoothFonts(true)
-        // Point space, origin bottom-left
         cg.scaleBy(x: scale, y: scale)
         cg.textMatrix = .identity
         cg.clear(CGRect(x: 0, y: 0, width: logicalW, height: logicalH))
         cg.setFillColor(NSColor.black.cgColor)
 
-        // Stack from top: percent then MEM
-        let percentTop = padY
-        let memTop = padY + percentLineH + gap
-        // baseline from bottom-left origin
-        let percentBaseline = logicalH - percentTop - percentAscent
-        let memBaseline = logicalH - memTop - memAscent
+        // Bottom-left baselines: MEM sits 1pt below percent glyph box
+        let percentBaseline = logicalH - blockTop - percentAscent
+        let memBaseline = percentBaseline - percentDescent - gap - memAscent
 
         cg.textPosition = CGPoint(x: (logicalW - percentWidth) / 2, y: percentBaseline)
         CTLineDraw(percentLine, cg)
         cg.textPosition = CGPoint(x: (logicalW - memWidth) / 2, y: memBaseline)
         CTLineDraw(memLine, cg)
 
-        // Debug metrics once when rendering preview
         if CommandLine.arguments.contains("--render-label-preview") {
-            fputs(String(format: "metrics w=%.1f h=%.1f pAsc=%.1f pDesc=%.1f pH=%.1f pBase=%.1f mAsc=%.1f mDesc=%.1f mH=%.1f mBase=%.1f\n",
-                         logicalW, logicalH, percentAscent, percentDescent, percentLineH, percentBaseline,
-                         memAscent, memDescent, memLineH, memBaseline), stderr)
+            fputs(String(format: "metrics w=%.1f h=%.1f blockH=%.1f blockTop=%.1f pAsc=%.1f pDesc=%.1f pBase=%.1f mAsc=%.1f mDesc=%.1f mBase=%.1f gap=%.1f\n",
+                         logicalW, logicalH, blockH, blockTop, percentAscent, percentDescent, percentBaseline,
+                         memAscent, memDescent, memBaseline, gap), stderr)
         }
 
         guard let cgImage = cg.makeImage() else { return NSImage(size: size) }
