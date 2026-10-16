@@ -83,11 +83,11 @@ struct ContentView: View {
         }
     }
 
-    /// Prefer bundled 1024 PNG; keep full-res reps so SwiftUI can downscale sharply with alpha intact.
+    /// Prefer bundled cropped full-res PNG; SwiftUI .resizable().interpolation(.high) downscales it.
     private static func headerAppIcon() -> NSImage {
         if let url = Bundle.main.url(forResource: "AppIcon-1024", withExtension: "png"),
            let src = NSImage(contentsOf: url) {
-            // Keep pixel size 1024; point size can stay native — SwiftUI .resizable scales it.
+            // Native crop size (not Lanczos-forced 1024); SwiftUI scales for the header.
             return src
         }
         if let named = NSImage(named: "AppIcon") {

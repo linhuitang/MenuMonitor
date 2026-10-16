@@ -88,6 +88,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        if let idx = args.firstIndex(of: "--snapshot-header"),
+           args.count > idx + 1 {
+            let path = args[idx + 1]
+            Self.snapshotLiveHeader(monitor: monitor, to: path)
+            NSApp.terminate(nil)
+            return
+        }
+
         NSApp.setActivationPolicy(.accessory)
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -270,5 +278,106 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         writePNG(image: image, to: path)
         print("panel-preview=\(path) size=\(image.size.width)x\(image.size.height)")
+    }
+
+    /// Open a real NSPanel with ContentView, capture the header band (live SwiftUI + PNG asset).
+    @MainActor
+    static func snapshotLiveHeader(monitor: SystemMonitor, to path: String) {
+        let root = ContentView()
+            .environmentObject(monitor)
+        let hosting = NSHostingView(rootView: AnyView(root))
+        hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 520)
+        hosting.wantsLayer = true
+        hosting.layer?.backgroundColor = NSColor.clear.cgColor
+
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 520),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .floating
+        panel.isFloatingPanel = true
+        panel.isReleasedWhenClosed = false
+
+        let container = NSView(frame: panel.contentRect(forFrameRect: panel.frame))
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.clear.cgColor
+        hosting.frame = container.bounds
+        container.addSubview(hosting)
+        panel.contentView = container
+
+        hosting.layoutSubtreeIfNeeded()
+        var size = hosting.fittingSize
+        if size.width < 10 || size.height < 10 {
+            size = NSSize(width: 320, height: 520)
+        }
+        size.width = max(size.width, 320)
+        hosting.frame = NSRect(origin: .zero, size: size)
+        panel.setContentSize(size)
+        container.frame = NSRect(origin: .zero, size: size)
+        hosting.frame = container.bounds
+
+        if let screen = NSScreen.main {
+            let vf = screen.visibleFrame
+            panel.setFrameOrigin(NSPoint(x: vf.midX - size.width / 2, y: vf.midY - size.height / 2))
+        }
+        NSApp.setActivationPolicy(.accessory)
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+
+        let deadline = Date().addingTimeInterval(0.4)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+
+        let headerHeight: CGFloat = 72
+        var saved = false
+
+        if panel.windowNumber > 0 {
+            let opts = CGWindowListOption(arrayLiteral: .optionIncludingWindow)
+            if let cgImg = CGWindowListCreateImage(
+                .null,
+                opts,
+                CGWindowID(panel.windowNumber),
+                [.boundsIgnoreFraming, .bestResolution]
+            ) {
+                let scaleX = CGFloat(cgImg.width) / max(size.width, 1)
+                let scaleY = CGFloat(cgImg.height) / max(size.height, 1)
+                let crop = CGRect(
+                    x: 0,
+                    y: 0,
+                    width: size.width * scaleX,
+                    height: headerHeight * scaleY
+                )
+                if let cropImg = cgImg.cropping(to: crop) {
+                    let out = NSImage(
+                        cgImage: cropImg,
+                        size: NSSize(width: crop.width / scaleX, height: crop.height / scaleY)
+                    )
+                    writePNG(image: out, to: path)
+                    saved = true
+                    print("header-live=\(path) via=CGWindow size=\(Int(crop.width))x\(Int(crop.height))")
+                }
+            }
+        }
+
+        if !saved {
+            let viewHeader = NSRect(x: 0, y: size.height - headerHeight, width: size.width, height: headerHeight)
+            guard let rep = hosting.bitmapImageRepForCachingDisplay(in: viewHeader) else {
+                fputs("snapshot-header: bitmap failed\n", stderr)
+                exit(1)
+            }
+            hosting.cacheDisplay(in: viewHeader, to: rep)
+            let img = NSImage(size: viewHeader.size)
+            img.addRepresentation(rep)
+            writePNG(image: img, to: path)
+            print("header-live=\(path) via=bitmap size=\(Int(viewHeader.width))x\(Int(viewHeader.height))")
+        }
+
+        panel.orderOut(nil)
     }
 }
