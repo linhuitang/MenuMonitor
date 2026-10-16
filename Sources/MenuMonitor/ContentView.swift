@@ -31,25 +31,11 @@ struct ContentView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                Color(red: 0.45, green: 0.55, blue: 1.0),
-                                Color(red: 0.55, green: 0.35, blue: 0.95)
-                            ],
-                            center: .topLeading,
-                            startRadius: 2,
-                            endRadius: 28
-                        )
-                    )
-                    .frame(width: 40, height: 40)
-                    .shadow(color: Color.blue.opacity(0.45), radius: 8, y: 2)
-                Image(systemName: "shield.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
+            Image(nsImage: NSImage(named: "AppIcon") ?? NSApp.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 44, height: 44)
+                .shadow(color: Color.cyan.opacity(0.35), radius: 8, y: 2)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("守护你的电脑")
