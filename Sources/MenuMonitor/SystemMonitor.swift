@@ -429,52 +429,51 @@ final class SystemMonitor: ObservableObject {
         let size = NSSize(width: logicalW, height: logicalH)
 
         let scale: CGFloat = 2
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(logicalW * scale),
-            pixelsHigh: Int(logicalH * scale),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
+        let pxW = Int(logicalW * scale)
+        let pxH = Int(logicalH * scale)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let cg = CGContext(
+            data: nil,
+            width: pxW,
+            height: pxH,
+            bitsPerComponent: 8,
             bytesPerRow: 0,
-            bitsPerPixel: 0
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
             return NSImage(size: size)
         }
-        rep.size = size
 
-        NSGraphicsContext.saveGraphicsState()
-        guard let nsCtx = NSGraphicsContext(bitmapImageRep: rep) else {
-            NSGraphicsContext.restoreGraphicsState()
-            return NSImage(size: size)
-        }
-        NSGraphicsContext.current = nsCtx
-        let cg = nsCtx.cgContext
         cg.setShouldAntialias(true)
-        cg.interpolationQuality = .high
-
-        // Transparent background — scale into point space, origin bottom-left
+        cg.setAllowsFontSmoothing(true)
+        cg.setShouldSmoothFonts(true)
+        // Point space, origin bottom-left
         cg.scaleBy(x: scale, y: scale)
+        cg.textMatrix = .identity
         cg.clear(CGRect(x: 0, y: 0, width: logicalW, height: logicalH))
+        cg.setFillColor(NSColor.black.cgColor)
 
-        // Top-down layout converted to bottom-left baselines:
-        // percent at topY=padY, MEM below it
-        let percentTopY = padY
-        let memTopY = padY + percentLineH + gap
-        let percentBaseline = logicalH - percentTopY - percentAscent
-        let memBaseline = logicalH - memTopY - memAscent
+        // Stack from top: percent then MEM
+        let percentTop = padY
+        let memTop = padY + percentLineH + gap
+        // baseline from bottom-left origin
+        let percentBaseline = logicalH - percentTop - percentAscent
+        let memBaseline = logicalH - memTop - memAscent
 
         cg.textPosition = CGPoint(x: (logicalW - percentWidth) / 2, y: percentBaseline)
         CTLineDraw(percentLine, cg)
         cg.textPosition = CGPoint(x: (logicalW - memWidth) / 2, y: memBaseline)
         CTLineDraw(memLine, cg)
 
-        NSGraphicsContext.restoreGraphicsState()
+        // Debug metrics once when rendering preview
+        if CommandLine.arguments.contains("--render-label-preview") {
+            fputs(String(format: "metrics w=%.1f h=%.1f pAsc=%.1f pDesc=%.1f pH=%.1f pBase=%.1f mAsc=%.1f mDesc=%.1f mH=%.1f mBase=%.1f\n",
+                         logicalW, logicalH, percentAscent, percentDescent, percentLineH, percentBaseline,
+                         memAscent, memDescent, memLineH, memBaseline), stderr)
+        }
 
-        let image = NSImage(size: size)
-        image.addRepresentation(rep)
+        guard let cgImage = cg.makeImage() else { return NSImage(size: size) }
+        let image = NSImage(cgImage: cgImage, size: size)
         image.isTemplate = true
         return image
     }
