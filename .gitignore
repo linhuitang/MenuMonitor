@@ -1,4 +1,25 @@
+# Swift / Xcode
 .build/
-*.app
-DerivedData/
 .swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+Package.resolved
+
+# App bundles / build products
+*.app
+dist/
+*.dmg
+*.pkg
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Local preview / debug screenshots (not for distribution)
+*-preview.png
+*-live.png
+*-zoom.png
+*-debug.png
+panel-shot.png
+desktop-after-fix.png
