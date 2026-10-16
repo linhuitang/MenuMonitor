@@ -7,6 +7,8 @@ struct ContentView: View {
     @State private var selectedTab = 2 // 硬件
     @State private var showCleanConfirm = false
 
+    private let panelRadius: CGFloat = 24
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
@@ -16,7 +18,12 @@ struct ContentView: View {
         }
         .padding(14)
         .frame(width: 320)
-        .background(.ultraThinMaterial)
+        .background {
+            RoundedRectangle(cornerRadius: panelRadius, style: .continuous)
+                .fill(.regularMaterial)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: panelRadius, style: .continuous))
+        .background(MenuBarWindowRounder(cornerRadius: panelRadius))
         .alert("确认清理？", isPresented: $showCleanConfirm) {
             Button("取消", role: .cancel) {}
             Button("清理", role: .destructive) {
@@ -113,7 +120,7 @@ struct ContentView: View {
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white)
                 .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
         )
@@ -151,7 +158,7 @@ struct ContentView: View {
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white)
                 .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
         )
@@ -447,6 +454,82 @@ struct LegendDot: View {
         HStack(spacing: 4) {
             Circle().fill(color).frame(width: 7, height: 7)
             Text(label)
+        }
+    }
+}
+
+
+/// Rounds the MenuBarExtra host NSWindow so system material doesn't show square corners.
+struct MenuBarWindowRounder: NSViewRepresentable {
+    var cornerRadius: CGFloat = 24
+
+    func makeNSView(context: Context) -> NSView {
+        let view = TrackerView()
+        view.cornerRadius = cornerRadius
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? TrackerView)?.cornerRadius = cornerRadius
+        DispatchQueue.main.async {
+            (nsView as? TrackerView)?.applyIfNeeded()
+        }
+    }
+
+    final class TrackerView: NSView {
+        var cornerRadius: CGFloat = 24
+        private var appliedToken: ObjectIdentifier?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            applyIfNeeded()
+        }
+
+        override func layout() {
+            super.layout()
+            applyIfNeeded()
+        }
+
+        func applyIfNeeded() {
+            guard let window = window else { return }
+            let token = ObjectIdentifier(window)
+            // Re-apply when window changes or every layout (cheap)
+            Self.style(window: window, radius: cornerRadius)
+            appliedToken = token
+        }
+
+        private static func style(window: NSWindow, radius: CGFloat) {
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.hasShadow = true
+
+            func roundLayer(_ view: NSView?) {
+                guard let view else { return }
+                view.wantsLayer = true
+                guard let layer = view.layer else { return }
+                layer.cornerRadius = radius
+                layer.masksToBounds = true
+                layer.cornerCurve = .continuous
+            }
+
+            roundLayer(window.contentView)
+
+            // BFS through a few levels for hosting / visual-effect wrappers
+            guard let root = window.contentView else {
+                window.invalidateShadow()
+                return
+            }
+            var current: [NSView] = root.subviews
+            for _ in 0..<5 {
+                var next: [NSView] = []
+                for v in current {
+                    roundLayer(v)
+                    next.append(contentsOf: v.subviews)
+                }
+                current = next
+                if current.isEmpty { break }
+            }
+            window.invalidateShadow()
         }
     }
 }
