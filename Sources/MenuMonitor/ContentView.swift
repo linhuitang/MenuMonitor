@@ -2,6 +2,11 @@ import SwiftUI
 import Charts
 import AppKit
 
+enum MenuMonitorTheme {
+    /// Metric OK / healthy accent (#42D483)
+    static let metricGreen = Color(red: 66/255, green: 212/255, blue: 131/255)
+}
+
 struct ContentView: View {
     @EnvironmentObject var monitor: SystemMonitor
     @State private var selectedTab = 2 // 硬件
@@ -76,7 +81,7 @@ struct ContentView: View {
                     valueText: String(format: "%.0f", monitor.memoryUsage),
                     unit: "%",
                     progress: monitor.memoryUsage / 100,
-                    color: monitor.memoryUsage > 60 ? Color.orange : Color.green
+                    color: monitor.memoryUsage > 60 ? Color.orange : MenuMonitorTheme.metricGreen
                 )
                 MetricColumn(
                     title: "CPU 占用",
@@ -272,7 +277,7 @@ struct ContentView: View {
     private func cpuColor(_ v: Double) -> Color {
         if v > 85 { return .red }
         if v > 60 { return .orange }
-        return .green
+        return MenuMonitorTheme.metricGreen
     }
 
     private func tempColor(_ t: Double?) -> Color {
