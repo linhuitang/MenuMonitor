@@ -318,13 +318,13 @@ struct MetricColumn: View {
                     .minimumScaleFactor(0.8)
                 HStack(alignment: .firstTextBaseline, spacing: 1) {
                     Text(valueText)
-                        .font(.system(size: 26, weight: .medium, design: .rounded))
+                        .font(.system(size: 22, weight: .medium, design: .rounded))
                         .foregroundStyle(color)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                     if !unit.isEmpty {
                         Text(unit)
-                            .font(.system(size: 11, weight: .regular, design: .rounded))
+                            .font(.system(size: 9, weight: .regular, design: .rounded))
                             .foregroundStyle(color.opacity(0.85))
                     }
                 }
