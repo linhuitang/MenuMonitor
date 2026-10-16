@@ -100,12 +100,16 @@ struct ContentView: View {
                 .buttonStyle(.plain)
             }
 
-            VStack(spacing: 6) {
-                let maxMem = max(monitor.topApps.first?.memoryBytes ?? 1, 1)
-                ForEach(monitor.topApps) { app in
-                    AppMemoryRow(app: app, maxBytes: maxMem)
+            // ~4 visible rows (28pt + 6pt spacing)
+            let maxMem = max(monitor.topApps.first?.memoryBytes ?? 1, 1)
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 6) {
+                    ForEach(monitor.topApps) { app in
+                        AppMemoryRow(app: app, maxBytes: maxMem)
+                    }
                 }
             }
+            .frame(height: 4 * 28 + 3 * 6)
         }
         .padding(12)
         .background(
@@ -318,15 +322,24 @@ struct MetricColumn: View {
 }
 
 struct AppMemoryRow: View {
+    @EnvironmentObject var monitor: SystemMonitor
     let app: AppMemoryInfo
     let maxBytes: UInt64
+
+    @State private var hovering = false
+    @State private var showInfo = false
 
     var body: some View {
         GeometryReader { geo in
             let frac = maxBytes > 0 ? CGFloat(app.memoryBytes) / CGFloat(maxBytes) : 0
             ZStack(alignment: .leading) {
+                // Full-row hover background
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color(white: 0.94))
+                    .fill(hovering ? Color(white: 0.90) : Color.clear)
+
+                // Proportional usage bar
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(white: hovering ? 0.86 : 0.94))
                     .frame(width: max(8, geo.size.width * frac))
 
                 HStack(spacing: 8) {
@@ -343,16 +356,86 @@ struct AppMemoryRow: View {
                     Text(app.name)
                         .font(.system(size: 12))
                         .lineLimit(1)
-                    Spacer()
-                    Text(SystemMonitor.formatBytes(app.memoryBytes))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
+
+                    if hovering {
+                        Button("关闭") {
+                            monitor.quitApp(app)
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                        .buttonStyle(.plain)
+
+                        Button {
+                            showInfo = true
+                        } label: {
+                            Image(systemName: "exclamationmark.circle")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: $showInfo, arrowEdge: .trailing) {
+                            AppInfoPopover(app: app)
+                                .environmentObject(monitor)
+                        }
+                    } else {
+                        Text(SystemMonitor.formatBytes(app.memoryBytes))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
             }
         }
         .frame(height: 28)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+    }
+}
+
+struct AppInfoPopover: View {
+    @EnvironmentObject var monitor: SystemMonitor
+    let app: AppMemoryInfo
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if let icon = app.icon {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 28, height: 28)
+                        .cornerRadius(6)
+                }
+                Text(app.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(2)
+            }
+
+            infoRow("Bundle ID", app.bundleIdentifier ?? "—")
+            infoRow("PID", app.pids.map(String.init).joined(separator: ", "))
+            infoRow("内存", SystemMonitor.formatBytes(app.memoryBytes))
+
+            Button("在活动监视器中查看") {
+                monitor.openActivityMonitor()
+            }
+            .font(.system(size: 12, weight: .medium))
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(12)
+        .frame(width: 240, alignment: .leading)
+    }
+
+    private func infoRow(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 11, design: .monospaced))
+                .textSelection(.enabled)
+        }
     }
 }
 

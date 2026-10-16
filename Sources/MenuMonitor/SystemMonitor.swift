@@ -6,8 +6,10 @@ import IOKit.storage
 import CoreText
 
 struct AppMemoryInfo: Identifiable {
-    let id: Int
+    let id: Int // primary PID
     let name: String
+    let bundleIdentifier: String?
+    let pids: [Int]
     let memoryBytes: UInt64
     let icon: NSImage?
 }
@@ -60,7 +62,7 @@ final class SystemMonitor: ObservableObject {
         memoryUsage = Self.readMemoryUsage()
         menuBarIcon = Self.makeMemBadge(percent: memoryUsage)
         cpuTemp = Self.readCPUTemperature()
-        topApps = Self.readTopApps(limit: 4)
+        topApps = Self.readTopApps(limit: 10)
         let disk = Self.readDiskSpace()
         diskTotal = disk.total
         diskFree = disk.free
@@ -231,9 +233,26 @@ final class SystemMonitor: ObservableObject {
 
     // MARK: - Top Apps Memory
 
+    private static let excludedBundleIds: Set<String> = [
+        "com.apple.finder",
+        "com.ankii.menumonitor"
+    ]
+
     private static func readTopApps(limit: Int) -> [AppMemoryInfo] {
-        let apps = NSWorkspace.shared.runningApplications.filter {
-            $0.activationPolicy == .regular && $0.processIdentifier > 0
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        let selfBundle = Bundle.main.bundleIdentifier
+
+        let apps = NSWorkspace.shared.runningApplications.filter { app in
+            guard app.activationPolicy == .regular, app.processIdentifier > 0 else { return false }
+            if app.processIdentifier == selfPID { return false }
+            if app == NSRunningApplication.current { return false }
+            if let bid = app.bundleIdentifier {
+                if excludedBundleIds.contains(bid) { return false }
+                if let selfBundle, bid == selfBundle { return false }
+            }
+            let name = app.localizedName ?? ""
+            if name == "Finder" || name == "MenuMonitor" { return false }
+            return true
         }
 
         var results: [AppMemoryInfo] = []
@@ -249,11 +268,41 @@ final class SystemMonitor: ObservableObject {
             let bytes = rusage.ri_phys_footprint
             guard bytes > 0 else { continue }
             let name = app.localizedName ?? app.bundleURL?.deletingPathExtension().lastPathComponent ?? "Unknown"
-            results.append(AppMemoryInfo(id: Int(pid), name: name, memoryBytes: bytes, icon: app.icon))
+            results.append(AppMemoryInfo(
+                id: Int(pid),
+                name: name,
+                bundleIdentifier: app.bundleIdentifier,
+                pids: [Int(pid)],
+                memoryBytes: bytes,
+                icon: app.icon
+            ))
         }
 
         return Array(results.sorted { $0.memoryBytes > $1.memoryBytes }.prefix(limit))
     }
+
+    func quitApp(_ info: AppMemoryInfo) {
+        // Never quit ourselves or Finder
+        if info.bundleIdentifier == "com.apple.finder" { return }
+        if info.bundleIdentifier == Bundle.main.bundleIdentifier { return }
+        if info.name == "Finder" || info.name == "MenuMonitor" { return }
+        if info.pids.contains(Int(ProcessInfo.processInfo.processIdentifier)) { return }
+
+        guard let app = NSRunningApplication(processIdentifier: pid_t(info.id)) else {
+            topApps = Self.readTopApps(limit: 10)
+            return
+        }
+        app.terminate() // graceful only; no forceTerminate
+
+        // Refresh after a short delay and again at ~3s; do not force-kill
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.topApps = Self.readTopApps(limit: 10)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            self?.topApps = Self.readTopApps(limit: 10)
+        }
+    }
+
 
     // MARK: - Disk
 
