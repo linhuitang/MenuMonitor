@@ -159,7 +159,7 @@ struct ContentView: View {
                 Text("应用内存占用")
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
-                Button("管理内存") {
+                Button("管理进程") {
                     monitor.openActivityMonitor()
                 }
                 .font(.system(size: 12, weight: .medium))
