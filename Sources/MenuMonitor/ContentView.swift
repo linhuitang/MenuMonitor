@@ -34,12 +34,25 @@ struct ContentView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Image(nsImage: Self.headerAppIcon())
-                    .resizable()
-                    .interpolation(.high)
-                    .antialiased(true)
-                    .scaledToFit()
-                    .frame(width: 44, height: 44)
+                ZStack {
+                    // Soft cyan glow on a separate layer so the foreground icon stays sharp
+                    Image(nsImage: Self.headerAppIcon())
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: 44, height: 44)
+                        .blur(radius: 6)
+                        .opacity(0.55)
+                        .colorMultiply(Color.cyan)
+                        .allowsHitTesting(false)
+                    Image(nsImage: Self.headerAppIcon())
+                        .resizable()
+                        .interpolation(.high)
+                        .antialiased(true)
+                        .scaledToFit()
+                        .frame(width: 44, height: 44)
+                }
+                .frame(width: 44, height: 44)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(monitor.junkText)
