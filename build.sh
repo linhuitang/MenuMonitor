@@ -14,6 +14,8 @@ echo "==> Assembling $APP..."
 rm -rf "$APP"
 mkdir -p "$MACOS_DIR"
 cp "$BIN" "$MACOS_DIR/MenuMonitor"
+mkdir -p "$APP_DIR/Resources"
+cp assets/AppIcon.icns "$APP_DIR/Resources/AppIcon.icns"
 
 cat > "$APP_DIR/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -24,6 +26,8 @@ cat > "$APP_DIR/Info.plist" << 'PLIST'
 	<string>zh-Hans</string>
 	<key>CFBundleExecutable</key>
 	<string>MenuMonitor</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.ankii.menumonitor</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -63,4 +67,4 @@ pkill -x MenuMonitor 2>/dev/null || true
 sleep 0.3
 open /Applications/MenuMonitor.app
 
-echo "Done. Look for the two-line MEM template label in the menu bar."
+echo "Done. Look for the memory percent label in the menu bar."
