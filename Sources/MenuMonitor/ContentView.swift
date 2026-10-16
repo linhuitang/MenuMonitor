@@ -169,15 +169,19 @@ struct ContentView: View {
                 Image(systemName: "laptopcomputer")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
-                Text("可用 \(SystemMonitor.formatBytes(monitor.diskFree)) / 共 \(SystemMonitor.formatBytes(monitor.diskTotal))")
-                    .font(.system(size: 12))
-                Spacer()
+                Text("可用 \(SystemMonitor.formatDiskGB(monitor.diskFree)) / 共 \(SystemMonitor.formatDiskGB(monitor.diskTotal))")
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 4)
                 Button("硬件详情") {
                     monitor.openSystemInformation()
                 }
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Color.accentColor)
                 .buttonStyle(.plain)
+                .fixedSize()
             }
 
             GeometryReader { geo in

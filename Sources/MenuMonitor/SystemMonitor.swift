@@ -508,6 +508,12 @@ final class SystemMonitor: ObservableObject {
         return "\(bytes) B"
     }
 
+    /// Disk totals for the hardware row — always one decimal GB, shorter than formatBytes.
+    static func formatDiskGB(_ bytes: UInt64) -> String {
+        let gb = Double(bytes) / (1024.0 * 1024.0 * 1024.0)
+        return String(format: "%.1f GB", gb)
+    }
+
     static func formatSpeed(_ bytesPerSec: Double) -> String {
         formatBytes(UInt64(max(0, bytesPerSec))) + "/s"
     }
