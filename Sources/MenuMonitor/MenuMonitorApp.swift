@@ -10,8 +10,7 @@ struct MenuMonitorApp: App {
             ContentView()
                 .environmentObject(monitor)
         } label: {
-            Text(monitor.menuBarLabel)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+            Image(nsImage: monitor.menuBarIcon)
         }
         .menuBarExtraStyle(.window)
     }

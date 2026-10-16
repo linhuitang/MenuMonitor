@@ -31,15 +31,12 @@ final class SystemMonitor: ObservableObject {
     @Published var networkHistory: [SpeedSample] = []
     @Published var diskIOHistory: [SpeedSample] = []
     @Published var isCleaning = false
+    @Published var menuBarIcon: NSImage = SystemMonitor.makeMemBadge(percent: 0)
 
     private var timer: Timer?
     private var prevCPUTicks: (UInt64, UInt64)? = nil
     private var prevNetBytes: (UInt64, UInt64, Date)? = nil
     private var prevDiskBytes: (UInt64, UInt64, Date)? = nil
-
-    var menuBarLabel: String {
-        String(format: "CPU %.0f%% 内存 %.0f%%", cpuUsage, memoryUsage)
-    }
 
     var junkText: String {
         "待清理垃圾 \(Self.formatBytes(junkBytes))"
@@ -60,6 +57,7 @@ final class SystemMonitor: ObservableObject {
     func refreshAll() {
         cpuUsage = Self.readCPUUsage(prev: &prevCPUTicks)
         memoryUsage = Self.readMemoryUsage()
+        menuBarIcon = Self.makeMemBadge(percent: memoryUsage)
         cpuTemp = Self.readCPUTemperature()
         topApps = Self.readTopApps(limit: 4)
         let disk = Self.readDiskSpace()
@@ -392,6 +390,65 @@ final class SystemMonitor: ObservableObject {
         for item in items {
             try? fm.removeItem(at: item)
         }
+    }
+
+    static func makeMemBadge(percent: Double) -> NSImage {
+        let logicalW: CGFloat = 36
+        let logicalH: CGFloat = 18
+        let scale: CGFloat = 2
+        let size = NSSize(width: logicalW, height: logicalH)
+        let pixelW = Int(logicalW * scale)
+        let pixelH = Int(logicalH * scale)
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let bitmap = CGContext(
+            data: nil,
+            width: pixelW,
+            height: pixelH,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return NSImage(size: size)
+        }
+
+        bitmap.translateBy(x: 0, y: CGFloat(pixelH))
+        bitmap.scaleBy(x: scale, y: -scale)
+
+        let rect = CGRect(x: 0, y: 0, width: logicalW, height: logicalH)
+        let round = CGPath(roundedRect: rect, cornerWidth: 4, cornerHeight: 4, transform: nil)
+        bitmap.setFillColor(red: 30/255, green: 110/255, blue: 126/255, alpha: 1)
+        bitmap.addPath(round)
+        bitmap.fillPath()
+
+        let percentText = String(format: "%.0f%%", percent) as NSString
+        let memText = "MEM" as NSString
+        let percentAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .bold),
+            .foregroundColor: NSColor.white
+        ]
+        let memAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 7.5, weight: .medium),
+            .foregroundColor: NSColor.white
+        ]
+        let pSize = percentText.size(withAttributes: percentAttrs)
+        let mSize = memText.size(withAttributes: memAttrs)
+
+        NSGraphicsContext.saveGraphicsState()
+        let nsCtx = NSGraphicsContext(cgContext: bitmap, flipped: true)
+        NSGraphicsContext.current = nsCtx
+        // With flipped context, y=0 is top
+        let pY: CGFloat = 0.5
+        let mY: CGFloat = logicalH - mSize.height - 0.5
+        percentText.draw(at: NSPoint(x: (logicalW - pSize.width) / 2, y: pY), withAttributes: percentAttrs)
+        memText.draw(at: NSPoint(x: (logicalW - mSize.width) / 2, y: mY), withAttributes: memAttrs)
+        NSGraphicsContext.restoreGraphicsState()
+
+        guard let cgImage = bitmap.makeImage() else { return NSImage(size: size) }
+        let image = NSImage(cgImage: cgImage, size: size)
+        image.isTemplate = false
+        return image
     }
 
     static func formatBytes(_ bytes: UInt64) -> String {

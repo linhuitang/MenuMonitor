@@ -63,4 +63,4 @@ pkill -x MenuMonitor 2>/dev/null || true
 sleep 0.3
 open /Applications/MenuMonitor.app
 
-echo "Done. Look for 'CPU xx% 内存 xx%' in the menu bar."
+echo "Done. Look for the teal MEM badge in the menu bar."
