@@ -52,21 +52,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if args.contains("--clean-now") {
+        if args.contains("--clean-dry-run") {
             let m = SystemMonitor()
-            // Wait for initial junk estimate (async) while pumping main run loop
             let deadline = Date().addingTimeInterval(3)
             while m.junkBytes == 0 && Date() < deadline {
                 RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
             }
             print("junkBefore=\(m.junkBytes) (\(SystemMonitor.formatBytes(m.junkBytes)))")
-            m.cleanCaches()
+            var lastPct = -1
+            m.cleanCaches(dryRun: true)
             let cleanDeadline = Date().addingTimeInterval(120)
             while m.isCleaning && Date() < cleanDeadline {
+                let pct = Int((m.cleanProgress * 100).rounded())
+                if pct != lastPct {
+                    print("progress=\(pct)% status=\(m.cleanStatusMessage ?? "")")
+                    lastPct = pct
+                }
                 RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
             }
             print("junkAfter=\(m.junkBytes) (\(SystemMonitor.formatBytes(m.junkBytes)))")
             print("status=\(m.cleanStatusMessage ?? "nil")")
+            print("dryRun=OK (no files deleted)")
             NSApp.terminate(nil)
             return
         }

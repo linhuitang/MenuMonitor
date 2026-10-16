@@ -31,8 +31,6 @@ struct ContentView: View {
 
     // MARK: Header
 
-    @State private var awaitingCleanConfirm = false
-
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
@@ -56,48 +54,30 @@ struct ContentView: View {
 
                 Spacer(minLength: 4)
 
-                if awaitingCleanConfirm && !monitor.isCleaning {
-                    HStack(spacing: 8) {
-                        Button("取消") {
-                            awaitingCleanConfirm = false
-                        }
+                Button {
+                    monitor.cleanCaches()
+                } label: {
+                    Text(monitor.isCleaning ? "清理中…" : "快速清理")
                         .font(.system(size: 12, weight: .medium))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-
-                        Button("确认清理") {
-                            awaitingCleanConfirm = false
-                            monitor.cleanCaches()
-                        }
-                        .font(.system(size: 12, weight: .semibold))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Capsule().fill(MenuMonitorTheme.metricGreen))
-                        .foregroundStyle(.white)
-                        .buttonStyle(.plain)
-                    }
-                } else {
-                    Button {
-                        awaitingCleanConfirm = true
-                        monitor.cleanStatusMessage = nil
-                    } label: {
-                        Text(monitor.isCleaning ? "清理中…" : "快速清理")
-                            .font(.system(size: 12, weight: .medium))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Capsule().fill(Color.white))
-                            .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(monitor.isCleaning)
+                        .background(Capsule().fill(Color.white))
+                        .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
                 }
+                .buttonStyle(.plain)
+                .disabled(monitor.isCleaning)
             }
 
-            if awaitingCleanConfirm && !monitor.isCleaning {
-                Text("将清理 ~/Library/Caches 与可安全删除的临时文件，不会动系统或其他目录。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if monitor.isCleaning || monitor.cleanProgress > 0 && monitor.cleanProgress < 1 {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color(white: 0.88))
+                        Capsule()
+                            .fill(MenuMonitorTheme.metricGreen)
+                            .frame(width: max(4, geo.size.width * CGFloat(min(1, max(0, monitor.cleanProgress)))))
+                    }
+                }
+                .frame(height: 4)
             }
         }
     }

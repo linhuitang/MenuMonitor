@@ -35,6 +35,8 @@ final class SystemMonitor: ObservableObject {
     @Published var diskIOHistory: [SpeedSample] = []
     @Published var isCleaning = false
     @Published var cleanStatusMessage: String? = nil
+    /// 0...1 while cleaning
+    @Published var cleanProgress: Double = 0
     @Published var menuBarIcon: NSImage = SystemMonitor.makeMemBadge(percent: 0)
 
     private var timer: Timer?
@@ -78,35 +80,48 @@ final class SystemMonitor: ObservableObject {
         }
     }
 
-    func cleanCaches() {
+    func cleanCaches(dryRun: Bool = false) {
+        guard !isCleaning else { return }
         isCleaning = true
-        cleanStatusMessage = "正在清理…"
+        cleanProgress = 0
+        cleanStatusMessage = "清理中 0%"
         let publishedBefore = junkBytes
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let before = publishedBefore > 0 ? publishedBefore : Self.estimateJunkBytes()
-            let result = Self.performSafeCleanup()
-            let junk = Self.estimateJunkBytes()
+            let result = Self.performSafeCleanup(dryRun: dryRun) { processed, total in
+                let fraction = total > 0 ? Double(processed) / Double(total) : 1
+                let pct = Int((fraction * 100).rounded())
+                DispatchQueue.main.async {
+                    self?.cleanProgress = min(1, fraction)
+                    self?.cleanStatusMessage = "清理中 \(pct)%"
+                }
+            }
+            let junk = dryRun ? before : Self.estimateJunkBytes()
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.junkBytes = junk
+                self.cleanProgress = 1
+                if !dryRun {
+                    self.junkBytes = junk
+                }
                 self.isCleaning = false
                 let freed = max(result.freedBytes, before > junk ? before - junk : 0)
                 if result.errorCount > 0 {
                     NSLog("[MenuMonitor] clean finished with %d errors (see earlier logs)", result.errorCount)
                 }
+                let prefix = dryRun ? "[dry-run] " : ""
                 self.cleanStatusMessage = String(
-                    format: "已清理 %@（跳过 %d 项）",
-                    Self.formatBytes(freed),
-                    result.skippedCount
+                    format: "%@已清理 %@",
+                    prefix,
+                    Self.formatBytes(freed)
                 )
-                NSLog("[MenuMonitor] clean done freed=%@ junkNow=%@ removed=%d skipped=%d errors=%d",
+                NSLog("[MenuMonitor] clean done dryRun=%@ freed=%@ junkNow=%@ removed=%d skipped=%d errors=%d",
+                      dryRun ? "YES" : "NO",
                       Self.formatBytes(freed), Self.formatBytes(junk),
                       result.removedCount, result.skippedCount, result.errorCount)
-                // Clear status after a few seconds
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-                    if self?.isCleaning == false {
-                        self?.cleanStatusMessage = nil
-                    }
+                    guard let self, !self.isCleaning else { return }
+                    self.cleanStatusMessage = nil
+                    self.cleanProgress = 0
                 }
             }
         }
@@ -117,32 +132,68 @@ final class SystemMonitor: ObservableObject {
         var removedCount: Int = 0
         var skippedCount: Int = 0
         var errorCount: Int = 0
+        var totalItems: Int = 0
+        var processedItems: Int = 0
     }
 
-    /// Safe cleanup: ~/Library/Caches children + own temp files under NSTemporaryDirectory (best-effort).
-    private static func performSafeCleanup() -> CleanupResult {
+    /// Safe cleanup: ~/Library/Caches children + own temp dirs. `dryRun` only simulates progress/sizes.
+    private static func performSafeCleanup(dryRun: Bool, progress: @escaping (_ processed: Int, _ total: Int) -> Void) -> CleanupResult {
         var result = CleanupResult()
         let fm = FileManager.default
+        var roots: [URL] = []
 
         let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Caches")
-        NSLog("[MenuMonitor] cleaning %@", caches.path)
-        clearDirectoryContents(at: caches, result: &result)
+        roots.append(caches)
 
-        // Only clear contents of the process temp dir that look like caches (not the whole /var/folders tree)
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-        // Be conservative: only remove files directly in tmp that are older-style cache leftovers we own —
-        // skip clearing entire NSTemporaryDirectory (shared). Instead clear known safe subdirs if present.
-        let safeTmpNames = ["MenuMonitor", "com.ankii.menumonitor"]
-        for name in safeTmpNames {
+        for name in ["MenuMonitor", "com.ankii.menumonitor"] {
             let url = tmp.appendingPathComponent(name)
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-                NSLog("[MenuMonitor] cleaning %@", url.path)
-                clearDirectoryContents(at: url, result: &result)
+                roots.append(url)
             }
         }
 
+        // Collect all top-level items first for determinate progress
+        var allItems: [URL] = []
+        for root in roots {
+            if let items = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey], options: []) {
+                allItems.append(contentsOf: items)
+            }
+        }
+        result.totalItems = allItems.count
+        progress(0, max(allItems.count, 1))
+
+        let skipNames: Set<String> = ["CloudKit", ".DS_Store"]
+        for (index, item) in allItems.enumerated() {
+            let name = item.lastPathComponent
+            if skipNames.contains(name) {
+                result.skippedCount += 1
+                result.processedItems = index + 1
+                progress(index + 1, max(allItems.count, 1))
+                continue
+            }
+            let size = directorySize(at: item)
+            if dryRun {
+                // Simulate work without deleting
+                Thread.sleep(forTimeInterval: 0.02)
+                result.removedCount += 1
+                result.freedBytes += size
+            } else {
+                do {
+                    try fm.removeItem(at: item)
+                    result.removedCount += 1
+                    result.freedBytes += size
+                } catch {
+                    result.skippedCount += 1
+                    result.errorCount += 1
+                    NSLog("[MenuMonitor] skip %@: %@", item.path, String(describing: error))
+                }
+            }
+            result.processedItems = index + 1
+            progress(index + 1, max(allItems.count, 1))
+        }
         return result
     }
 
@@ -597,38 +648,6 @@ final class SystemMonitor: ObservableObject {
         return size
     }
 
-    private static func clearDirectoryContents(at url: URL, result: inout CleanupResult) {
-        let fm = FileManager.default
-        let items: [URL]
-        do {
-            items = try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey], options: [])
-        } catch {
-            NSLog("[MenuMonitor] list failed %@: %@", url.path, String(describing: error))
-            result.errorCount += 1
-            return
-        }
-
-        // Never delete the Caches root itself — only children. Skip well-known sticky/cloud folders lightly.
-        let skipNames: Set<String> = ["CloudKit", ".DS_Store"]
-        for item in items {
-            let name = item.lastPathComponent
-            if skipNames.contains(name) {
-                result.skippedCount += 1
-                continue
-            }
-            // Size before delete (best-effort)
-            let size = directorySize(at: item)
-            do {
-                try fm.removeItem(at: item)
-                result.removedCount += 1
-                result.freedBytes += size
-            } catch {
-                result.skippedCount += 1
-                result.errorCount += 1
-                NSLog("[MenuMonitor] skip %@: %@", item.path, String(describing: error))
-            }
-        }
-    }
 
     static func makeMemBadge(percent: Double) -> NSImage {
         let percentText = String(format: "%.0f%%", percent)
