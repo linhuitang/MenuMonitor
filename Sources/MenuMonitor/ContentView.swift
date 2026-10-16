@@ -5,6 +5,8 @@ import AppKit
 enum MenuMonitorTheme {
     /// Metric OK / healthy accent (#42D483)
     static let metricGreen = Color(red: 66/255, green: 212/255, blue: 131/255)
+    /// Link / action text (#539AFF)
+    static let linkBlue = Color(red: 83/255, green: 154/255, blue: 255/255)
 }
 
 struct ContentView: View {
@@ -149,7 +151,7 @@ struct ContentView: View {
                     monitor.openActivityMonitor()
                 }
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(MenuMonitorTheme.linkBlue)
                 .buttonStyle(.plain)
             }
 
@@ -226,7 +228,7 @@ struct ContentView: View {
                     monitor.openSystemInformation()
                 }
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(MenuMonitorTheme.linkBlue)
                 .buttonStyle(.plain)
                 .fixedSize()
             }
