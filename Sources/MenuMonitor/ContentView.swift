@@ -284,7 +284,7 @@ struct ContentView: View {
         guard let t else { return .secondary }
         if t > 85 { return .red }
         if t > 70 { return .orange }
-        return .green
+        return MenuMonitorTheme.metricGreen
     }
 
     private func tempProgress(_ t: Double?) -> Double {
