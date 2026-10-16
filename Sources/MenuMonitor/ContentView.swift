@@ -113,7 +113,7 @@ struct ContentView: View {
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(Color.white)
                 .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
         )
@@ -151,7 +151,7 @@ struct ContentView: View {
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(Color.white)
                 .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
         )
