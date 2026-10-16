@@ -40,6 +40,12 @@ final class SystemMonitor: ObservableObject {
     @Published var menuBarIcon: NSImage = SystemMonitor.makeMemBadge(percent: 0)
 
     private var timer: Timer?
+    private var cleanDisplayTimer: Timer?
+    private var cleanRawProgress: Double = 0
+    private var cleanStartDate: Date?
+    private var cleanWorkFinished = false
+    private var cleanHoldUntil: Date?
+    private var cleanDoneMessage: String?
     private var prevCPUTicks: (UInt64, UInt64)? = nil
     private var prevNetBytes: (UInt64, UInt64, Date)? = nil
     private var prevDiskBytes: (UInt64, UInt64, Date)? = nil
@@ -87,48 +93,118 @@ final class SystemMonitor: ObservableObject {
         guard !isCleaning else { return }
         isCleaning = true
         cleanProgress = 0
+        cleanRawProgress = 0
+        cleanWorkFinished = false
+        cleanHoldUntil = nil
+        cleanDoneMessage = nil
         cleanStatusMessage = "清理中 0%"
+        cleanStartDate = Date()
+        startCleanDisplayTimer()
+
         let publishedBefore = junkBytes
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let before = publishedBefore > 0 ? publishedBefore : Self.estimateJunkBytes()
             let result = Self.performSafeCleanup(dryRun: dryRun) { processed, total in
                 let fraction = total > 0 ? Double(processed) / Double(total) : 1
-                let pct = Int((fraction * 100).rounded())
                 DispatchQueue.main.async {
-                    self?.cleanProgress = min(1, fraction)
-                    self?.cleanStatusMessage = "清理中 \(pct)%"
+                    self?.cleanRawProgress = min(1, fraction)
                 }
             }
             let junk = dryRun ? before : Self.estimateJunkBytes()
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.cleanProgress = 1
                 if !dryRun {
                     self.junkBytes = junk
                 }
-                self.isCleaning = false
                 let freed = max(result.freedBytes, before > junk ? before - junk : 0)
                 if result.errorCount > 0 {
                     NSLog("[MenuMonitor] clean finished with %d errors (see earlier logs)", result.errorCount)
                 }
                 let prefix = dryRun ? "[dry-run] " : ""
-                self.cleanStatusMessage = String(
+                self.cleanDoneMessage = String(
                     format: "%@已清理 %@",
                     prefix,
                     Self.formatBytes(freed)
                 )
+                self.cleanRawProgress = 1
+                self.cleanWorkFinished = true
                 NSLog("[MenuMonitor] clean done dryRun=%@ freed=%@ junkNow=%@ removed=%d skipped=%d errors=%d",
                       dryRun ? "YES" : "NO",
                       Self.formatBytes(freed), Self.formatBytes(junk),
                       result.removedCount, result.skippedCount, result.errorCount)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-                    guard let self, !self.isCleaning else { return }
-                    self.cleanStatusMessage = nil
-                    self.cleanProgress = 0
-                }
             }
         }
     }
+
+    private func startCleanDisplayTimer() {
+        cleanDisplayTimer?.invalidate()
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            self?.tickCleanDisplay()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        cleanDisplayTimer = timer
+    }
+
+    private func stopCleanDisplayTimer() {
+        cleanDisplayTimer?.invalidate()
+        cleanDisplayTimer = nil
+    }
+
+    /// Smoothly ease displayed progress; enforce ~1.8s to reach 100%, then hold done state ~2s.
+    private func tickCleanDisplay() {
+        let minDuration: TimeInterval = 1.8
+        let holdDuration: TimeInterval = 2.0
+        guard let start = cleanStartDate else { return }
+        let elapsed = Date().timeIntervalSince(start)
+
+        if let holdUntil = cleanHoldUntil {
+            // Full bar + "已清理 …" visible
+            cleanProgress = 1
+            if Date() >= holdUntil {
+                cleanStatusMessage = nil
+                cleanProgress = 0
+                cleanRawProgress = 0
+                cleanHoldUntil = nil
+                cleanDoneMessage = nil
+                cleanWorkFinished = false
+                cleanStartDate = nil
+                isCleaning = false
+                stopCleanDisplayTimer()
+            }
+            return
+        }
+
+        if cleanWorkFinished {
+            // Ease toward 100%, but do not arrive until minDuration has elapsed.
+            if elapsed >= minDuration {
+                cleanProgress += (1.0 - cleanProgress) * 0.45
+                if cleanProgress >= 0.995 {
+                    cleanProgress = 1
+                    cleanStatusMessage = cleanDoneMessage ?? "已清理"
+                    isCleaning = false
+                    cleanHoldUntil = Date().addingTimeInterval(holdDuration)
+                } else {
+                    cleanStatusMessage = "清理中 99%"
+                }
+            } else {
+                let remaining = max(0.05, minDuration - elapsed)
+                // Step so we land near 1.0 exactly at minDuration from current value.
+                let step = (1.0 - cleanProgress) * min(1.0, (1.0 / 30.0) / remaining)
+                cleanProgress = min(0.99, cleanProgress + step)
+                let pct = Int((cleanProgress * 100).rounded())
+                cleanStatusMessage = "清理中 \(pct)%"
+            }
+            return
+        }
+
+        // Still working: follow raw progress but never hit 100% yet; blend time so fast cleans animate.
+        let timeFloor = min(0.92, elapsed / minDuration)
+        let blended = min(0.97, max(cleanRawProgress * 0.85 + timeFloor * 0.15, min(cleanRawProgress, 0.97)))
+        cleanProgress += (blended - cleanProgress) * 0.28
+        let pct = Int((cleanProgress * 100).rounded())
+        cleanStatusMessage = "清理中 \(pct)%"
+    }
+
 
     private struct CleanupResult {
         var freedBytes: UInt64 = 0

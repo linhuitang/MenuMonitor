@@ -23,7 +23,6 @@ struct ContentView: View {
             header
             metricsCard
             systemCard
-            footer
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
@@ -89,7 +88,8 @@ struct ContentView: View {
                 .disabled(monitor.isCleaning)
             }
 
-            if monitor.isCleaning || monitor.cleanProgress > 0 && monitor.cleanProgress < 1 {
+            // Show bar through completion (progress == 1) until status is cleared.
+            if monitor.isCleaning || monitor.cleanProgress > 0 {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color(white: 0.88))
@@ -99,6 +99,7 @@ struct ContentView: View {
                     }
                 }
                 .frame(height: 4)
+                .animation(.easeInOut(duration: 0.2), value: monitor.cleanProgress)
             }
         }
     }
@@ -302,18 +303,6 @@ struct ContentView: View {
             .chartXAxis(.hidden)
             .chartYAxis(.hidden)
             .frame(height: 48)
-        }
-    }
-
-    private var footer: some View {
-        HStack {
-            Spacer()
-            Button("退出") {
-                NSApp.terminate(nil)
-            }
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .buttonStyle(.plain)
         }
     }
 

@@ -60,16 +60,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             print("junkBefore=\(m.junkBytes) (\(SystemMonitor.formatBytes(m.junkBytes)))")
             var lastPct = -1
+            var lastStatus = ""
+            let t0 = Date()
             m.cleanCaches(dryRun: true)
+            // Wait for progress animation + done hold (status clears when fully done).
             let cleanDeadline = Date().addingTimeInterval(120)
-            while m.isCleaning && Date() < cleanDeadline {
+            while Date() < cleanDeadline {
                 let pct = Int((m.cleanProgress * 100).rounded())
-                if pct != lastPct {
-                    print("progress=\(pct)% status=\(m.cleanStatusMessage ?? "")")
+                let status = m.cleanStatusMessage ?? ""
+                if pct != lastPct || status != lastStatus {
+                    let elapsed = Date().timeIntervalSince(t0)
+                    print(String(format: "t=%.2fs progress=%d%% status=%@", elapsed, pct, status))
                     lastPct = pct
+                    lastStatus = status
+                }
+                if !m.isCleaning && m.cleanProgress == 0 && m.cleanStatusMessage == nil && Date().timeIntervalSince(t0) > 0.5 {
+                    break
                 }
                 RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
             }
+            print(String(format: "elapsed=%.2fs", Date().timeIntervalSince(t0)))
             print("junkAfter=\(m.junkBytes) (\(SystemMonitor.formatBytes(m.junkBytes)))")
             print("status=\(m.cleanStatusMessage ?? "nil")")
             print("dryRun=OK (no files deleted)")
@@ -111,7 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = monitor.menuBarIcon
             button.imagePosition = .imageOnly
             button.target = self
-            button.action = #selector(togglePanel(_:))
+            button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         statusItem = item
@@ -182,6 +192,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             container.frame = NSRect(origin: .zero, size: size)
             hosting.frame = container.bounds
         }
+    }
+
+    @objc private func statusItemClicked(_ sender: Any?) {
+        guard let event = NSApp.currentEvent else {
+            togglePanel(sender)
+            return
+        }
+        if event.type == .rightMouseUp {
+            showStatusMenu()
+            return
+        }
+        togglePanel(sender)
+    }
+
+    private func showStatusMenu() {
+        let menu = NSMenu()
+        let quit = NSMenuItem(
+            title: "退出 MenuMonitor",
+            action: #selector(quitApp(_:)),
+            keyEquivalent: "q"
+        )
+        quit.target = self
+        menu.addItem(quit)
+        // Temporarily attach menu so the status button can present it, then clear
+        // so the next left-click still toggles the panel.
+        statusItem?.menu = menu
+        statusItem?.button?.performClick(nil)
+        statusItem?.menu = nil
+    }
+
+    @objc private func quitApp(_ sender: Any?) {
+        NSApp.terminate(nil)
     }
 
     @objc private func togglePanel(_ sender: Any?) {
