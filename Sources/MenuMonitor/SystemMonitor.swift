@@ -3,6 +3,7 @@ import AppKit
 import Darwin
 import IOKit
 import IOKit.storage
+import CoreText
 
 struct AppMemoryInfo: Identifiable {
     let id: Int
@@ -393,54 +394,40 @@ final class SystemMonitor: ObservableObject {
     }
 
     static func makeMemBadge(percent: Double) -> NSImage {
-        let percentStr = String(format: "%.0f%%", percent) as NSString
-        let memStr = "MEM" as NSString
+        let percentText = String(format: "%.0f%%", percent)
+        let memText = "MEM"
 
         let percentFont = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold)
         let memFont = NSFont.systemFont(ofSize: 7, weight: .medium)
 
-        let percentAttrs: [NSAttributedString.Key: Any] = [
+        let percentAttr = NSAttributedString(string: percentText, attributes: [
             .font: percentFont,
             .foregroundColor: NSColor.black
-        ]
-        let memAttrs: [NSAttributedString.Key: Any] = [
+        ])
+        let memAttr = NSAttributedString(string: memText, attributes: [
             .font: memFont,
             .foregroundColor: NSColor.black,
             .kern: 0.6
-        ]
+        ])
 
-        let percentSize = percentStr.size(withAttributes: percentAttrs)
-        let memSize = memStr.size(withAttributes: memAttrs)
+        let percentLine = CTLineCreateWithAttributedString(percentAttr)
+        let memLine = CTLineCreateWithAttributedString(memAttr)
 
-        // Use typographic line heights so lines never overlap
-        let percentLineH = ceil(percentFont.ascender - percentFont.descender)
-        let memLineH = ceil(memFont.ascender - memFont.descender)
+        var percentAscent: CGFloat = 0, percentDescent: CGFloat = 0, percentLeading: CGFloat = 0
+        let percentWidth = CGFloat(CTLineGetTypographicBounds(percentLine, &percentAscent, &percentDescent, &percentLeading))
+        var memAscent: CGFloat = 0, memDescent: CGFloat = 0, memLeading: CGFloat = 0
+        let memWidth = CGFloat(CTLineGetTypographicBounds(memLine, &memAscent, &memDescent, &memLeading))
+
+        let percentLineH = ceil(percentAscent + percentDescent)
+        let memLineH = ceil(memAscent + memDescent)
         let gap: CGFloat = 1
         let padX: CGFloat = 2
         let padY: CGFloat = 1
 
-        let logicalW = ceil(max(percentSize.width, memSize.width) + padX * 2)
+        let logicalW = ceil(max(percentWidth, memWidth) + padX * 2)
         let logicalH = min(22, ceil(percentLineH + memLineH + gap + padY * 2))
         let size = NSSize(width: logicalW, height: logicalH)
 
-        // Drawing handler (flipped) for correct top→bottom layout; NSImage caches @2x when drawn
-        let image = NSImage(size: size, flipped: true) { rect in
-            NSColor.clear.setFill()
-            rect.fill()
-
-            let percentX = (rect.width - percentSize.width) / 2
-            let memX = (rect.width - memSize.width) / 2
-            let percentY = padY
-            let memY = padY + percentLineH + gap
-
-            percentStr.draw(in: NSRect(x: percentX, y: percentY, width: percentSize.width, height: percentLineH),
-                            withAttributes: percentAttrs)
-            memStr.draw(in: NSRect(x: memX, y: memY, width: memSize.width, height: memLineH),
-                        withAttributes: memAttrs)
-            return true
-        }
-
-        // Force a crisp 2x bitmap representation for menu bar + preview
         let scale: CGFloat = 2
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
@@ -454,25 +441,42 @@ final class SystemMonitor: ObservableObject {
             bytesPerRow: 0,
             bitsPerPixel: 0
         ) else {
-            image.isTemplate = true
-            return image
+            return NSImage(size: size)
         }
         rep.size = size
+
         NSGraphicsContext.saveGraphicsState()
-        if let ctx = NSGraphicsContext(bitmapImageRep: rep) {
-            NSGraphicsContext.current = ctx
-            ctx.cgContext.scaleBy(x: scale, y: scale)
-            image.draw(in: NSRect(origin: .zero, size: size),
-                       from: .zero,
-                       operation: .copy,
-                       fraction: 1.0)
+        guard let nsCtx = NSGraphicsContext(bitmapImageRep: rep) else {
+            NSGraphicsContext.restoreGraphicsState()
+            return NSImage(size: size)
         }
+        NSGraphicsContext.current = nsCtx
+        let cg = nsCtx.cgContext
+        cg.setShouldAntialias(true)
+        cg.interpolationQuality = .high
+
+        // Transparent background — scale into point space, origin bottom-left
+        cg.scaleBy(x: scale, y: scale)
+        cg.clear(CGRect(x: 0, y: 0, width: logicalW, height: logicalH))
+
+        // Top-down layout converted to bottom-left baselines:
+        // percent at topY=padY, MEM below it
+        let percentTopY = padY
+        let memTopY = padY + percentLineH + gap
+        let percentBaseline = logicalH - percentTopY - percentAscent
+        let memBaseline = logicalH - memTopY - memAscent
+
+        cg.textPosition = CGPoint(x: (logicalW - percentWidth) / 2, y: percentBaseline)
+        CTLineDraw(percentLine, cg)
+        cg.textPosition = CGPoint(x: (logicalW - memWidth) / 2, y: memBaseline)
+        CTLineDraw(memLine, cg)
+
         NSGraphicsContext.restoreGraphicsState()
 
-        let finalImage = NSImage(size: size)
-        finalImage.addRepresentation(rep)
-        finalImage.isTemplate = true
-        return finalImage
+        let image = NSImage(size: size)
+        image.addRepresentation(rep)
+        image.isTemplate = true
+        return image
     }
 
     static func formatBytes(_ bytes: UInt64) -> String {
