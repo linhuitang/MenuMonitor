@@ -104,11 +104,9 @@ struct ContentView: View {
 
         // Pick the largest available bitmap rep from the source
         var cgImage: CGImage?
-        if let reps = source.representations as? [NSImageRep] {
-            let best = reps.max(by: { $0.pixelsWide * $0.pixelsHigh < $1.pixelsWide * $1.pixelsHigh })
-            if let bitmap = best as? NSBitmapImageRep {
-                cgImage = bitmap.cgImage
-            }
+        if let best = source.representations.max(by: { $0.pixelsWide * $0.pixelsHigh < $1.pixelsWide * $1.pixelsHigh }),
+           let bitmap = best as? NSBitmapImageRep {
+            cgImage = bitmap.cgImage
         }
         if cgImage == nil {
             var rect = NSRect(origin: .zero, size: source.size)
