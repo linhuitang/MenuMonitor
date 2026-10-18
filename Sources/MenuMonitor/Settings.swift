@@ -223,6 +223,29 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     static var title: String { L("MenuMonitor Settings", "MenuMonitor 设置") }
 
+    var isVisible: Bool { window?.isVisible ?? false }
+
+    /// Hide the settings window (kept alive for fast reopen via Settings…).
+    func hide(reason: String = "") {
+        guard let window, window.isVisible else { return }
+        NSLog("[MenuMonitor] settings hide reason=%@", reason)
+        window.orderOut(nil)
+    }
+
+    // Auto-hide when the window loses focus (click on another app, the desktop,
+    // or the menu bar icon). Controls inside the window (segmented pickers,
+    // toggles, pop-up menus) don't resign key, so they never trigger this.
+    func windowDidResignKey(_ notification: Notification) {
+        // Defer one tick: if focus moved to a sheet/child of this window, or the
+        // window became key again, keep it.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.window, window.isVisible else { return }
+            if window.isKeyWindow || window.attachedSheet != nil { return }
+            if let key = NSApp.keyWindow, key.parent === window || key.sheetParent === window { return }
+            self.hide(reason: "resignKey")
+        }
+    }
+
     func applyAppearance() {
         guard let window else { return }
         window.title = Self.title

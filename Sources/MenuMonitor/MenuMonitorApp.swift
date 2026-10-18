@@ -16,6 +16,10 @@ struct MenuMonitorApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidResignActive(_ notification: Notification) {
+        SettingsWindowController.shared.hide(reason: "appResignActive")
+    }
+
     let monitor = SystemMonitor()
     private let theme = ThemeStore()
     private var settingsObserver: NSObjectProtocol?
@@ -176,6 +180,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        if args.contains("--test-settings-autohide") {
+            runSettingsAutoHideTest()
+            return
+        }
+
         if args.contains("--test-panel-close") {
             // Build a real panel path identical to production, then close and verify.
             NSApp.setActivationPolicy(.accessory)
@@ -231,6 +240,113 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RunLoop.main.add(iconTimer!, forMode: .common)
 
         setupPanel()
+    }
+
+    /// CLI hook: verifies the Settings window auto-hides on focus loss, survives
+    /// clicks on its own controls, and never comes back with the panel.
+    private func runSettingsAutoHideTest() {
+        NSApp.setActivationPolicy(.accessory)
+        SettingsKey.registerDefaults()
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.title = "MMTest"
+        statusItem = item
+        setupPanel()
+        let settings = SettingsWindowController.shared
+        var failures: [String] = []
+        func check(_ name: String, _ ok: Bool) {
+            print("\(ok ? "PASS" : "FAIL") \(name)")
+            if !ok { failures.append(name) }
+        }
+        func wait(_ s: TimeInterval) {
+            let end = Date().addingTimeInterval(s)
+            while Date() < end { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        }
+        func allSubviews(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(allSubviews) }
+        func click(_ view: NSView, in window: NSWindow, at local: NSPoint) {
+            let p = view.convert(local, to: nil)
+            let ts = ProcessInfo.processInfo.systemUptime
+            let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: ts + 0.05,
+                                        windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)!
+            let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: ts,
+                                          windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+            NSApp.postEvent(up, atStart: false)
+            window.sendEvent(down)
+        }
+        let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first
+
+        settings.show()
+        wait(0.8)
+        check("settings visible after Settings…", settings.isVisible)
+        // A CLI-launched process may be refused activation (macOS 14 cooperative
+        // activation); then fall back to driving the same delegate callbacks.
+        let canActivate = NSApp.isActive
+        print("app active (real focus available): \(canActivate)")
+        if canActivate { check("settings is key", settings.window?.isKeyWindow ?? false) }
+
+        // Click controls inside the window: language & appearance segmented pickers.
+        let originalLang = UserDefaults.standard.string(forKey: SettingsKey.language)
+        let originalAppearance = UserDefaults.standard.string(forKey: SettingsKey.appearance)
+        if let window = settings.window, let content = window.contentView {
+            let segs = allSubviews(content).compactMap { $0 as? NSSegmentedControl }
+            print("segmented controls found: \(segs.count)")
+            for seg in segs.prefix(2) {
+                let w = seg.bounds.width / CGFloat(max(seg.segmentCount, 1))
+                for i in [1, 0] {
+                    click(seg, in: window, at: NSPoint(x: w * (CGFloat(i) + 0.5), y: seg.bounds.midY))
+                    wait(0.3)
+                    print("  clicked segment \(i) -> selected=\(seg.selectedSegment) lang=\(UserDefaults.standard.string(forKey: SettingsKey.language) ?? "nil") appearance=\(UserDefaults.standard.string(forKey: SettingsKey.appearance) ?? "nil")")
+                }
+            }
+            check("found segmented controls", segs.count >= 2)
+        }
+        print("language after clicks: \(UserDefaults.standard.string(forKey: SettingsKey.language) ?? "nil")")
+        wait(0.4)
+        check("settings still visible after clicking its controls", settings.isVisible)
+        UserDefaults.standard.set(originalLang ?? LanguageSetting.system.rawValue, forKey: SettingsKey.language)
+        UserDefaults.standard.set(originalAppearance ?? AppearanceMode.system.rawValue, forKey: SettingsKey.appearance)
+        if originalLang == nil { UserDefaults.standard.removeObject(forKey: SettingsKey.language) }
+
+        // Click elsewhere: another app becomes active.
+        if canActivate {
+            finder?.activate()
+            wait(1.0)
+            check("settings hidden after switching to another app", !settings.isVisible)
+        } else {
+            settings.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: settings.window))
+            wait(0.3)
+            check("settings hidden on windowDidResignKey (simulated)", !settings.isVisible)
+            settings.show(); wait(0.5)
+            applicationDidResignActive(Notification(name: NSApplication.didResignActiveNotification))
+            wait(0.3)
+            check("settings hidden on applicationDidResignActive (simulated)", !settings.isVisible)
+        }
+
+        // Status item click while settings was hidden: panel only.
+        openPanel()
+        wait(0.6)
+        check("panel visible after status item click", PanelController.shared.isVisible)
+        check("settings NOT shown with panel", !settings.isVisible)
+        PanelController.shared.close(reason: "test")
+
+        // Reopen via Settings…, then status item click while settings is open.
+        settings.show()
+        wait(0.8)
+        check("settings reopens via Settings…", settings.isVisible)
+        openPanel()
+        wait(0.6)
+        check("settings hidden when panel opens", !settings.isVisible)
+        check("panel visible", PanelController.shared.isVisible)
+        PanelController.shared.close(reason: "test")
+        finder?.activate()
+        wait(0.6)
+        openPanel()
+        wait(0.6)
+        check("settings stays hidden on later panel open", !settings.isVisible)
+        PanelController.shared.close(reason: "test")
+
+        print(failures.isEmpty ? "test-settings-autohide OK" : "test-settings-autohide FAILED: \(failures)")
+        fflush(stdout)
+        exit(failures.isEmpty ? 0 : 1)
     }
 
     private func setupPanel() {
@@ -373,6 +489,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openPanel() {
         guard let panel else { return }
+        // Opening the panel activates the app; never let it bring Settings back.
+        SettingsWindowController.shared.hide(reason: "openPanel")
         theme.refresh()
         applyPanelAppearance(theme.scheme)
         PanelController.shared.attach(panel: panel, statusButton: statusItem?.button)
