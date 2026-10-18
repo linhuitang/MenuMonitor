@@ -6,12 +6,15 @@ echo "==> Building MenuMonitor (release)..."
 swift build -c release
 
 BIN=".build/release/MenuMonitor"
-APP="MenuMonitor.app"
+# Assemble in a temp dir (not the project folder) so Spotlight/Launchpad
+# never index a second copy next to /Applications/MenuMonitor.app.
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/MenuMonitor-build.XXXXXX")"
+trap 'rm -rf "$STAGE"' EXIT
+APP="$STAGE/MenuMonitor.app"
 APP_DIR="$APP/Contents"
 MACOS_DIR="$APP_DIR/MacOS"
 
-echo "==> Assembling $APP..."
-rm -rf "$APP"
+echo "==> Assembling MenuMonitor.app..."
 mkdir -p "$MACOS_DIR"
 cp "$BIN" "$MACOS_DIR/MenuMonitor"
 mkdir -p "$APP_DIR/Resources"
@@ -59,13 +62,20 @@ echo "==> Ad-hoc codesign..."
 codesign --force --deep -s - "$APP"
 
 echo "==> Installing to /Applications..."
+# Quit the running copy before replacing it
+pkill -x MenuMonitor 2>/dev/null || true
+sleep 0.3
 rm -rf /Applications/MenuMonitor.app
 cp -R "$APP" /Applications/MenuMonitor.app
 
+# Forget a stale in-project copy from older build.sh versions, if LaunchServices still has it
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+if [[ -x "$LSREGISTER" ]]; then
+  "$LSREGISTER" -u "$PWD/MenuMonitor.app" >/dev/null 2>&1 || true
+  "$LSREGISTER" -f /Applications/MenuMonitor.app >/dev/null 2>&1 || true
+fi
+
 echo "==> Launching..."
-# Kill previous instance if any
-pkill -x MenuMonitor 2>/dev/null || true
-sleep 0.3
 open /Applications/MenuMonitor.app
 
 echo "Done. Look for the memory percent label in the menu bar."

@@ -18,6 +18,7 @@ struct MenuMonitorApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let monitor = SystemMonitor()
     private let theme = ThemeStore()
+    private var settingsObserver: NSObjectProtocol?
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
     private var hosting: NSHostingView<AnyView>?
@@ -114,6 +115,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        if args.contains("--print-status-menu") {
+            for item in makeStatusMenu().items {
+                print(item.isSeparatorItem ? "---" : "\(item.title) [\(item.keyEquivalent)]")
+            }
+            NSApp.terminate(nil)
+            return
+        }
+
+        if args.contains("--test-login-item") {
+            print("before=\(LoginItem.status.rawValue) \(LoginItem.statusText)")
+            let e1 = LoginItem.set(true)
+            print("afterRegister=\(LoginItem.status.rawValue) \(LoginItem.statusText) error=\(e1 ?? "nil")")
+            let e2 = LoginItem.set(false)
+            print("afterUnregister=\(LoginItem.status.rawValue) \(LoginItem.statusText) error=\(e2 ?? "nil")")
+            NSApp.terminate(nil)
+            return
+        }
+
+        if args.contains("--print-settings") {
+            SettingsKey.registerDefaults()
+            let d = UserDefaults.standard
+            print("appearance=\(AppearanceMode.current.rawValue) refreshInterval=\(RefreshIntervalOption.current) menuBarDisplay=\(MenuBarDisplay.current.rawValue) temperatureUnit=\(d.string(forKey: SettingsKey.temperatureUnit) ?? "nil") loginItem=\(LoginItem.statusText)")
+            NSApp.terminate(nil)
+            return
+        }
+
+        if let idx = args.firstIndex(of: "--snapshot-settings"), args.count > idx + 1 {
+            SettingsKey.registerDefaults()
+            NSApp.setActivationPolicy(.accessory)
+            let path = args[idx + 1]
+            let controller = SettingsWindowController.shared
+            controller.show()
+            if let window = controller.window {
+                if let i = args.firstIndex(of: "--appearance"), args.count > i + 1 {
+                    window.appearance = NSAppearance(named: args[i + 1] == "dark" ? .darkAqua : .aqua)
+                }
+                let deadline = Date().addingTimeInterval(0.8)
+                while Date() < deadline {
+                    RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+                }
+                var saved = false
+                if let cg = CGWindowListCreateImage(.null, .optionIncludingWindow,
+                                                    CGWindowID(window.windowNumber),
+                                                    [.boundsIgnoreFraming, .bestResolution]) {
+                    Self.writePNG(image: NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)), to: path)
+                    saved = true
+                    print("settings-shot=\(path) via=CGWindow size=\(cg.width)x\(cg.height)")
+                }
+                if !saved, let view = window.contentView,
+                   let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    let img = NSImage(size: view.bounds.size)
+                    img.addRepresentation(rep)
+                    Self.writePNG(image: img, to: path)
+                    print("settings-shot=\(path) via=bitmap")
+                }
+            }
+            NSApp.terminate(nil)
+            return
+        }
+
         if args.contains("--test-panel-close") {
             // Build a real panel path identical to production, then close and verify.
             NSApp.setActivationPolicy(.accessory)
@@ -137,6 +199,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         NSApp.setActivationPolicy(.accessory)
+        SettingsKey.registerDefaults()
+        monitor.applySettings()
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applySettings()
+        }
 
         theme.onChange = { [weak self] scheme in
             self?.applyPanelAppearance(scheme)
@@ -242,8 +313,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         togglePanel(sender)
     }
 
-    private func showStatusMenu() {
+    private func applySettings() {
+        monitor.applySettings()
+        if let button = statusItem?.button {
+            button.image = monitor.menuBarIcon
+        }
+        theme.refresh()
+        applyPanelAppearance(theme.scheme)
+        SettingsWindowController.shared.applyAppearance()
+    }
+
+    func makeStatusMenu() -> NSMenu {
         let menu = NSMenu()
+        let settings = NSMenuItem(
+            title: "设置…",
+            action: #selector(openSettings(_:)),
+            keyEquivalent: ","
+        )
+        settings.target = self
+        menu.addItem(settings)
+        menu.addItem(.separator())
         let quit = NSMenuItem(
             title: "退出 MenuMonitor",
             action: #selector(quitApp(_:)),
@@ -251,6 +340,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         quit.target = self
         menu.addItem(quit)
+        return menu
+    }
+
+    @objc private func openSettings(_ sender: Any?) {
+        // Defer until the status menu has fully dismissed.
+        DispatchQueue.main.async {
+            SettingsWindowController.shared.show()
+        }
+    }
+
+    private func showStatusMenu() {
+        let menu = makeStatusMenu()
         // Temporarily attach menu so the status button can present it, then clear
         // so the next left-click still toggles the panel.
         statusItem?.menu = menu
@@ -301,7 +402,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if value == "dark" { return .dark }
             if value == "light" { return .light }
         }
-        return ThemeStore.system
+        return ThemeStore.resolved
     }
 
     static func tab(from args: [String]) -> Int {

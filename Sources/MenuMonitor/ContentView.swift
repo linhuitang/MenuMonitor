@@ -100,7 +100,7 @@ final class ThemeStore: ObservableObject {
     private var token: NSObjectProtocol?
 
     init() {
-        scheme = Self.system
+        scheme = Self.resolved
         token = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
             object: nil,
@@ -128,10 +128,19 @@ final class ThemeStore: ObservableObject {
     }
 
     func refresh() {
-        let next = Self.system
+        let next = Self.resolved
         guard next != scheme else { return }
         scheme = next
         onChange?(next)
+    }
+
+    /// User override from Settings (外观), else the system appearance.
+    static var resolved: ColorScheme {
+        switch AppearanceMode.current {
+        case .light: return .light
+        case .dark: return .dark
+        case .system: return system
+        }
     }
 
     static var system: ColorScheme {
@@ -152,6 +161,8 @@ final class ThemeStore: ObservableObject {
 struct ContentView: View {
     @EnvironmentObject var monitor: SystemMonitor
     @EnvironmentObject var theme: ThemeStore
+    @AppStorage(SettingsKey.temperatureUnit) private var temperatureUnitRaw = TemperatureUnit.celsius.rawValue
+    private var tempUnit: TemperatureUnit { TemperatureUnit(rawValue: temperatureUnitRaw) ?? .celsius }
     @State private var selectedTab: Int
 
     init(initialTab: Int = 2) {
@@ -301,8 +312,8 @@ struct ContentView: View {
                 )
                 MetricColumn(
                     title: "CPU 温度",
-                    valueText: monitor.cpuTemp.map { String(format: "%.0f", $0) } ?? "--",
-                    unit: monitor.cpuTemp != nil ? "°C" : "",
+                    valueText: monitor.cpuTemp.map { String(format: "%.0f", tempUnit.convert($0)) } ?? "--",
+                    unit: monitor.cpuTemp != nil ? tempUnit.symbol : "",
                     progress: tempProgress(monitor.cpuTemp),
                     color: tempColor(monitor.cpuTemp)
                 )

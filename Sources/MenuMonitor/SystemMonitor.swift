@@ -64,12 +64,53 @@ final class SystemMonitor: ObservableObject {
         return "待清理垃圾 \(Self.formatBytes(junkBytes))"
     }
 
+    private var currentInterval: TimeInterval = 0
+
     init() {
         refreshAll()
-        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        scheduleTimer(RefreshIntervalOption.current)
+    }
+
+    private func scheduleTimer(_ interval: TimeInterval) {
+        timer?.invalidate()
+        currentInterval = interval
+        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             self?.refreshAll()
         }
-        RunLoop.main.add(timer!, forMode: .common)
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    /// Re-read settings (refresh interval, menu bar display). Cheap and idempotent.
+    func applySettings() {
+        let interval = RefreshIntervalOption.current
+        if interval != currentInterval {
+            scheduleTimer(interval)
+            NSLog("[MenuMonitor] refresh interval -> %.0fs", interval)
+        }
+        updateMenuBarIcon()
+    }
+
+    private func updateMenuBarIcon() {
+        menuBarIcon = Self.makeStatusBadge(display: MenuBarDisplay.current, memory: memoryUsage, cpu: cpuUsage)
+    }
+
+    static func makeStatusBadge(display: MenuBarDisplay, memory: Double, cpu: Double) -> NSImage {
+        switch display {
+        case .memory:
+            return makeMemBadge(percent: memory)
+        case .cpu:
+            return makeTextBadge(String(format: "CPU %.0f%%", cpu))
+        case .memoryAndCPU:
+            return makeTextBadge(String(format: "%.0f%% · CPU %.0f%%", memory, cpu))
+        case .iconOnly:
+            let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+            let img = NSImage(systemSymbolName: "gauge.with.dots.needle.50percent", accessibilityDescription: "MenuMonitor")?
+                .withSymbolConfiguration(config)
+                ?? makeMemBadge(percent: memory)
+            img.isTemplate = true
+            return img
+        }
     }
 
     deinit {
@@ -79,7 +120,7 @@ final class SystemMonitor: ObservableObject {
     func refreshAll() {
         cpuUsage = Self.readCPUUsage(prev: &prevCPUTicks)
         memoryUsage = Self.readMemoryUsage()
-        menuBarIcon = Self.makeMemBadge(percent: memoryUsage)
+        updateMenuBarIcon()
         cpuTemp = Self.readCPUTemperature()
         topApps = Self.readTopApps(limit: 10)
         let disk = Self.readDiskSpace()
@@ -754,7 +795,10 @@ final class SystemMonitor: ObservableObject {
 
 
     static func makeMemBadge(percent: Double) -> NSImage {
-        let percentText = String(format: "%.0f%%", percent)
+        makeTextBadge(String(format: "%.0f%%", percent))
+    }
+
+    static func makeTextBadge(_ percentText: String) -> NSImage {
 
         let font = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold)
         let attrs: [NSAttributedString.Key: Any] = [
