@@ -1,38 +1,40 @@
 # MenuMonitor
 
-macOS 菜单栏系统监控小工具（原生 SwiftUI / AppKit）。
+**English** | [简体中文](README.zh-CN.md)
 
-> A lightweight macOS menu-bar system monitor built with SwiftUI and AppKit.
+A lightweight macOS menu-bar system monitor built with native SwiftUI and AppKit.
 
 ![Panel screenshot](docs/screenshot.png)
 
-## 功能
+## Features
 
-- **菜单栏**：实时显示内存占用百分比
-- **弹出面板**
-  - 待清理缓存估算与「快速清理」（清理 `~/Library/Caches`，无二次确认，带进度）
-  - 内存 / CPU / CPU 温度
-  - 应用内存占用 Top 10（可结束进程、查看详情）
-  - 磁盘空间、网络与磁盘 I/O 速率
-  - 「管理进程」打开「活动监视器」；「硬件详情」打开「系统信息」
-- **深色模式**：面板跟随系统外观，也可在设置中固定为浅色 / 深色
-- **设置**（右键菜单栏图标 →「设置…」，⌘,）
-  - 开机自动启动
-  - 外观：跟随系统 / 浅色 / 深色
-  - 刷新间隔：1 / 2 / 5 秒
-  - 菜单栏显示：内存 / CPU / 内存 + CPU / 仅图标
-  - 温度单位：°C / °F
-- **退出**：右键菜单栏图标 →「退出 MenuMonitor」（左键打开/关闭面板）
+- **Menu bar**: live memory usage percentage
+- **Popover panel**
+  - Junk (cache) size estimate and **Quick Clean** (cleans `~/Library/Caches`, no confirmation, with progress)
+  - Memory / CPU / CPU temperature
+  - Top 10 apps by memory (quit an app or view its details)
+  - Disk space, network and disk I/O throughput
+  - **Manage Processes** opens Activity Monitor; **Hardware Info** opens System Information
+- **Dark mode**: follows the system appearance, or force Light / Dark in Settings
+- **Languages**: English and Chinese (中文); defaults to following the system (Chinese if your preferred language is Chinese, otherwise English)
+- **Settings** (right-click the menu bar icon → **Settings…**, ⌘,)
+  - Launch at Login
+  - Language: Follow System / English / 中文
+  - Appearance: Follow System / Light / Dark
+  - Refresh interval: 1 / 2 / 5 s
+  - Menu bar shows: Memory / CPU / Memory + CPU / Icon Only
+  - Temperature unit: °C / °F
+- **Quit**: right-click the menu bar icon → **Quit MenuMonitor** (left-click toggles the panel)
 
-<img src="docs/settings.png" alt="设置窗口" width="440">
+<img src="docs/settings.png" alt="Settings window" width="440">
 
-## 环境要求
+## Requirements
 
-- **macOS 14+**（见 `Package.swift`）
-- Apple Silicon 或 Intel（CPU 温度优先通过 IOKit HID 传感器读取，读不到时显示 `--`）
-- 仅需 **Command Line Tools**（`xcode-select --install`），不必安装完整 Xcode
+- **macOS 14+** (see `Package.swift`)
+- Apple Silicon or Intel (CPU temperature is read from IOKit HID sensors; shows `--` if unavailable)
+- Only the **Command Line Tools** are needed (`xcode-select --install`); full Xcode is not required
 
-## 编译与安装
+## Build & Install
 
 ```bash
 git clone https://github.com/linhuitang/MenuMonitor.git
@@ -40,39 +42,39 @@ cd MenuMonitor
 ./build.sh
 ```
 
-`build.sh` 会：`swift build -c release` → 在临时目录组装 `MenuMonitor.app` → ad-hoc 签名 → 退出旧进程并安装到 `/Applications` → 启动（项目目录不会留下第二份 App）。
+`build.sh` runs `swift build -c release`, assembles `MenuMonitor.app` in a temporary directory, ad-hoc signs it, quits any running copy, installs it to `/Applications` and launches it (no second copy is left in the project folder).
 
-仅编译：
+Build only:
 
 ```bash
 swift build -c release
 ```
 
-## 退出
+## Quit
 
-- 右键菜单栏图标 → **退出 MenuMonitor**
-- 或终端：`pkill -x MenuMonitor`
+- Right-click the menu bar icon → **Quit MenuMonitor**
+- Or from Terminal: `pkill -x MenuMonitor`
 
-## 首次打开（未公证）
+## First Launch (not notarized)
 
-本项目以 **ad-hoc 签名**分发，**未经 Apple 公证**。从 GitHub Release 下载 DMG/ZIP 后，若系统提示无法打开：
+Releases are **ad-hoc signed** and **not notarized by Apple**. If macOS refuses to open the app after downloading the DMG/ZIP from GitHub Releases:
 
-1. 将 `MenuMonitor.app` 拖到「应用程序」
-2. **右键** App → **打开**（不要双击），在对话框中再点「打开」
-3. 或在终端移除隔离属性后启动：
+1. Drag `MenuMonitor.app` into Applications
+2. **Right-click** the app → **Open** (don't double-click), then click **Open** in the dialog
+3. Or remove the quarantine attribute in Terminal and launch:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/MenuMonitor.app
 open /Applications/MenuMonitor.app
 ```
 
-也可在「系统设置 → 隐私与安全性」中允许仍被拦截的 App。
+You can also allow a blocked app in **System Settings → Privacy & Security**.
 
-## 说明
+## Notes
 
-- 「快速清理」只删除用户 `~/Library/Caches` 下可安全清理的内容，不会动废纸篓或其他目录
-- 待清理体积低于 1 MiB 时显示「没有要清理的垃圾」，并禁用快速清理按钮
+- **Quick Clean** only removes safely deletable items under your `~/Library/Caches`; it never touches the Trash or other folders
+- When the junk size is below 1 MiB the header shows **No junk to clean** and the Quick Clean button is disabled
 
-## 许可证
+## License
 
 MIT © 2026 linhuitang
