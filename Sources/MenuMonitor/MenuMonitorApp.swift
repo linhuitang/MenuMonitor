@@ -17,6 +17,7 @@ struct MenuMonitorApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let monitor = SystemMonitor()
+    private let theme = ThemeStore()
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
     private var hosting: NSHostingView<AnyView>?
@@ -45,7 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let idx = args.firstIndex(of: "--render-panel-preview"),
            args.count > idx + 1 {
             let path = args[idx + 1]
-            Self.renderPanelPreview(monitor: monitor, to: path)
+            let tab = Self.tab(from: args)
+            Self.renderPanelPreview(monitor: monitor, to: path, scheme: Self.scheme(from: args), tab: tab)
             NSApp.terminate(nil)
             return
         }
@@ -136,6 +138,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.setActivationPolicy(.accessory)
 
+        theme.onChange = { [weak self] scheme in
+            self?.applyPanelAppearance(scheme)
+        }
+
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
             button.image = monitor.menuBarIcon
@@ -159,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupPanel() {
         let root = ContentView()
             .environmentObject(monitor)
+            .environmentObject(theme)
         let hostingView = NSHostingView(rootView: AnyView(root))
         hostingView.frame = NSRect(x: 0, y: 0, width: 320, height: 520)
         hostingView.autoresizingMask = [.width, .height]
@@ -191,12 +198,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         self.panel = panel
         self.hosting = hostingView
+        applyPanelAppearance(theme.scheme)
         PanelController.shared.attach(panel: panel, statusButton: statusItem?.button)
 
         // Size to fitting size once content lays out
         DispatchQueue.main.async { [weak self] in
             self?.relayoutPanel()
         }
+    }
+
+    /// Pin the panel to the system appearance so SwiftUI colorScheme and AppKit popovers stay in sync.
+    private func applyPanelAppearance(_ scheme: ColorScheme) {
+        let appearance = ThemeStore.appearance(for: scheme)
+        panel?.appearance = appearance
+        hosting?.appearance = appearance
     }
 
     private func relayoutPanel() {
@@ -257,6 +272,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openPanel() {
         guard let panel else { return }
+        theme.refresh()
+        applyPanelAppearance(theme.scheme)
         PanelController.shared.attach(panel: panel, statusButton: statusItem?.button)
         PanelController.shared.open(afterRelayout: { [weak self] in
             self?.relayoutPanel()
@@ -278,27 +295,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    static func scheme(from args: [String]) -> ColorScheme {
+        if let idx = args.firstIndex(of: "--appearance"), args.count > idx + 1 {
+            let value = args[idx + 1].lowercased()
+            if value == "dark" { return .dark }
+            if value == "light" { return .light }
+        }
+        return ThemeStore.system
+    }
+
+    static func tab(from args: [String]) -> Int {
+        if let idx = args.firstIndex(of: "--tab"), args.count > idx + 1, let value = Int(args[idx + 1]) {
+            return min(2, max(0, value))
+        }
+        return 2
+    }
+
     @MainActor
-    static func renderPanelPreview(monitor: SystemMonitor, to path: String) {
-        let view = ContentView()
+    static func renderPanelPreview(monitor: SystemMonitor, to path: String, scheme: ColorScheme, tab: Int = 2) {
+        let theme = ThemeStore(fixed: scheme)
+        let view = ContentView(initialTab: tab)
             .environmentObject(monitor)
+            .environmentObject(theme)
+            .environment(\.colorScheme, scheme)
+            .preferredColorScheme(scheme)
             .frame(width: 320)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
+        renderer.proposedSize = ProposedViewSize(width: 320, height: nil)
         guard let image = renderer.nsImage else {
             fputs("ImageRenderer failed\n", stderr)
             exit(1)
         }
         writePNG(image: image, to: path)
-        print("panel-preview=\(path) size=\(image.size.width)x\(image.size.height)")
+        print("panel-preview=\(path) scheme=\(scheme == .dark ? "dark" : "light") size=\(image.size.width)x\(image.size.height)")
     }
 
     /// Capture the full live NSPanel (window-server pixels).
     @MainActor
     static func snapshotLivePanel(monitor: SystemMonitor, to path: String) {
-        let root = ContentView()
+        let scheme = scheme(from: CommandLine.arguments)
+        let theme = ThemeStore(fixed: scheme)
+        let root = ContentView(initialTab: tab(from: CommandLine.arguments))
             .environmentObject(monitor)
+            .environmentObject(theme)
+            .environment(\.colorScheme, scheme)
         let hosting = NSHostingView(rootView: AnyView(root))
+        hosting.appearance = ThemeStore.appearance(for: scheme)
         hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 520)
         hosting.wantsLayer = true
         hosting.layer?.backgroundColor = NSColor.clear.cgColor
@@ -313,6 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.level = .floating
+        panel.appearance = ThemeStore.appearance(for: scheme)
         panel.isFloatingPanel = true
         panel.isReleasedWhenClosed = false
 
@@ -383,9 +427,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Open a real NSPanel with ContentView, capture the header band (live SwiftUI + PNG asset).
     @MainActor
     static func snapshotLiveHeader(monitor: SystemMonitor, to path: String) {
+        let scheme = scheme(from: CommandLine.arguments)
+        let theme = ThemeStore(fixed: scheme)
         let root = ContentView()
             .environmentObject(monitor)
+            .environmentObject(theme)
+            .environment(\.colorScheme, scheme)
         let hosting = NSHostingView(rootView: AnyView(root))
+        hosting.appearance = ThemeStore.appearance(for: scheme)
         hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 520)
         hosting.wantsLayer = true
         hosting.layer?.backgroundColor = NSColor.clear.cgColor
@@ -400,6 +449,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.level = .floating
+        panel.appearance = ThemeStore.appearance(for: scheme)
         panel.isFloatingPanel = true
         panel.isReleasedWhenClosed = false
 

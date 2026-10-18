@@ -3,20 +3,163 @@ import Charts
 import AppKit
 
 enum MenuMonitorTheme {
-    /// Metric OK / healthy accent (#42D483)
+    /// Metric OK / healthy accent (#42D483). Same in both appearances; it stays legible on the dark card.
     static let metricGreen = Color(red: 66/255, green: 212/255, blue: 131/255)
     /// Link / action text (#539AFF)
     static let linkBlue = Color(red: 83/255, green: 154/255, blue: 255/255)
-    /// Primary label / tab text (#4D4D4D)
-    static let labelGray = Color(red: 77/255, green: 77/255, blue: 77/255)
+
+    /// Surfaces and controls. Light values match the original panel; dark values are the night-mode pair.
+    struct Palette {
+        let scheme: ColorScheme
+
+        var isDark: Bool { scheme == .dark }
+
+        var panelBackground: Color {
+            isDark
+                ? Color(red: 36/255, green: 37/255, blue: 42/255) // #24252A
+                : Color(red: 239/255, green: 241/255, blue: 244/255) // #EFF1F4
+        }
+
+        var cardBackground: Color {
+            isDark
+                ? Color(red: 50/255, green: 51/255, blue: 58/255) // #32333A
+                : Color(red: 248/255, green: 249/255, blue: 250/255) // #F8F9FA
+        }
+
+        var cardShadow: Color {
+            Color.black.opacity(isDark ? 0.40 : 0.06)
+        }
+
+        /// Primary label / tab / button text. Light is #4D4D4D.
+        var label: Color {
+            isDark
+                ? Color(red: 230/255, green: 230/255, blue: 232/255) // #E6E6E8
+                : Color(red: 77/255, green: 77/255, blue: 77/255) // #4D4D4D
+        }
+
+        var buttonFill: Color {
+            isDark
+                ? Color(red: 69/255, green: 71/255, blue: 79/255) // #45474F
+                : Color.white
+        }
+
+        var meterTrack: Color {
+            isDark ? Color.white.opacity(0.12) : Color(white: 0.92)
+        }
+
+        var cleanTrack: Color {
+            isDark ? Color.white.opacity(0.12) : Color(white: 0.88)
+        }
+
+        var diskTrack: Color {
+            isDark ? Color.white.opacity(0.14) : Color(white: 0.90)
+        }
+
+        var diskFree: Color {
+            isDark ? Color.white.opacity(0.32) : Color(white: 0.75)
+        }
+
+        var segmentTrack: Color {
+            isDark
+                ? Color(red: 30/255, green: 31/255, blue: 36/255) // #1E1F24
+                : Color(red: 232/255, green: 234/255, blue: 238/255) // #E8EAEE
+        }
+
+        var segmentPill: Color {
+            isDark
+                ? Color(red: 74/255, green: 76/255, blue: 85/255) // #4A4C55
+                : Color.white
+        }
+
+        var segmentDivider: Color {
+            isDark ? Color.white.opacity(0.16) : Color.black.opacity(0.10)
+        }
+
+        var segmentShadow: Color {
+            Color.black.opacity(isDark ? 0.35 : 0.10)
+        }
+
+        var usageBar: Color {
+            isDark ? Color.white.opacity(0.18) : Color(white: 0.94)
+        }
+
+        var usageBarHover: Color {
+            isDark ? Color.white.opacity(0.26) : Color(white: 0.86)
+        }
+
+        var rowHover: Color {
+            isDark ? Color.white.opacity(0.08) : Color(white: 0.90)
+        }
+    }
+}
+
+/// Follows the system appearance (System Settings → Appearance), including automatic day/night.
+final class ThemeStore: ObservableObject {
+    @Published private(set) var scheme: ColorScheme
+    var onChange: ((ColorScheme) -> Void)?
+    private var token: NSObjectProtocol?
+
+    init() {
+        scheme = Self.system
+        token = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // The defaults key is sometimes committed on the next turn.
+            DispatchQueue.main.async {
+                self?.refresh()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                self?.refresh()
+            }
+        }
+    }
+
+    /// Pinned scheme for previews and snapshots. Does not observe the system.
+    init(fixed scheme: ColorScheme) {
+        self.scheme = scheme
+    }
+
+    deinit {
+        if let token {
+            DistributedNotificationCenter.default().removeObserver(token)
+        }
+    }
+
+    func refresh() {
+        let next = Self.system
+        guard next != scheme else { return }
+        scheme = next
+        onChange?(next)
+    }
+
+    static var system: ColorScheme {
+        if let style = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") {
+            if style.caseInsensitiveCompare("Dark") == .orderedSame { return .dark }
+            if style.caseInsensitiveCompare("Light") == .orderedSame { return .light }
+        }
+        let match = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+        return match == .darkAqua ? .dark : .light
+    }
+
+    static func appearance(for scheme: ColorScheme) -> NSAppearance {
+        let name: NSAppearance.Name = scheme == .dark ? .darkAqua : .aqua
+        return NSAppearance(named: name) ?? NSAppearance(named: .aqua)!
+    }
 }
 
 struct ContentView: View {
     @EnvironmentObject var monitor: SystemMonitor
-    @State private var selectedTab = 2 // 硬件
+    @EnvironmentObject var theme: ThemeStore
+    @State private var selectedTab: Int
+
+    init(initialTab: Int = 2) {
+        _selectedTab = State(initialValue: initialTab)
+    }
 
     private let panelRadius: CGFloat = 24
-    private let panelBg = Color(red: 239/255, green: 241/255, blue: 244/255) // #EFF1F4
+    private var colors: MenuMonitorTheme.Palette { .init(scheme: theme.scheme) }
 
     /// Idle + junk below 1 MiB: grey out 快速清理 (cleaning / result UI unchanged).
     private var quickCleanGreyed: Bool {
@@ -36,8 +179,16 @@ struct ContentView: View {
         .padding(.top, 16)
         .padding(.bottom, 18)
         .frame(width: 320)
-        .background(panelBg, in: RoundedRectangle(cornerRadius: panelRadius, style: .continuous))
+        .background(colors.panelBackground, in: RoundedRectangle(cornerRadius: panelRadius, style: .continuous))
+        .overlay {
+            if colors.isDark {
+                RoundedRectangle(cornerRadius: panelRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: panelRadius, style: .continuous))
+        .environment(\.colorScheme, theme.scheme)
+        .animation(.easeInOut(duration: 0.22), value: theme.scheme)
     }
 
     // MARK: Header
@@ -86,11 +237,13 @@ struct ContentView: View {
                 } label: {
                     Text(monitor.isCleaning ? "清理中…" : "快速清理")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(MenuMonitorTheme.labelGray.opacity(quickCleanGreyed ? 0.45 : 1))
+                        .foregroundStyle(colors.label.opacity(quickCleanGreyed ? 0.45 : 1))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.white.opacity(quickCleanGreyed ? 0.7 : 1)))
-                        .shadow(color: .black.opacity(quickCleanGreyed ? 0 : 0.08), radius: 3, y: 1)
+                        .background(
+                            Capsule().fill(colors.buttonFill.opacity(quickCleanGreyed ? (colors.isDark ? 0.55 : 0.7) : 1))
+                        )
+                        .shadow(color: .black.opacity(quickCleanGreyed ? 0 : (colors.isDark ? 0.28 : 0.08)), radius: 3, y: 1)
                 }
                 .buttonStyle(.plain)
                 .disabled(monitor.isCleaning || quickCleanGreyed)
@@ -101,7 +254,7 @@ struct ContentView: View {
             if monitor.isCleaning || monitor.cleanProgress > 0 {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Color(white: 0.88))
+                        Capsule().fill(colors.cleanTrack)
                         Capsule()
                             .fill(MenuMonitorTheme.metricGreen)
                             .frame(width: max(4, geo.size.width * CGFloat(min(1, max(0, monitor.cleanProgress)))))
@@ -181,11 +334,7 @@ struct ContentView: View {
             .frame(height: 4 * 28 + 3 * 6)
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(red: 248/255, green: 249/255, blue: 250/255)) // #F8F9FA
-                .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
-        )
+        .monitorCard(colors)
     }
 
     // MARK: System Card
@@ -216,11 +365,7 @@ struct ContentView: View {
             .frame(minHeight: 72)
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(red: 248/255, green: 249/255, blue: 250/255)) // #F8F9FA
-                .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
-        )
+        .monitorCard(colors)
     }
 
     private var hardwareTab: some View {
@@ -250,7 +395,7 @@ struct ContentView: View {
                     return CGFloat(monitor.diskTotal - monitor.diskFree) / CGFloat(monitor.diskTotal)
                 }()
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color(white: 0.90))
+                    Capsule().fill(colors.diskTrack)
                     Capsule()
                         .fill(Color.orange)
                         .frame(width: max(4, geo.size.width * usedFrac))
@@ -260,7 +405,7 @@ struct ContentView: View {
 
             HStack(spacing: 14) {
                 LegendDot(color: .orange, label: "已用")
-                LegendDot(color: Color(white: 0.75), label: "可用")
+                LegendDot(color: colors.diskFree, label: "可用")
             }
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
@@ -288,6 +433,9 @@ struct ContentView: View {
             }
             .chartXAxis(.hidden)
             .chartYAxis(.hidden)
+            .chartPlotStyle { plot in
+                plot.background(Color.clear)
+            }
             .frame(height: 48)
         }
     }
@@ -313,6 +461,9 @@ struct ContentView: View {
             }
             .chartXAxis(.hidden)
             .chartYAxis(.hidden)
+            .chartPlotStyle { plot in
+                plot.background(Color.clear)
+            }
             .frame(height: 48)
         }
     }
@@ -343,10 +494,13 @@ struct MetricColumn: View {
     let progress: Double
     let color: Color
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
+        let track = MenuMonitorTheme.Palette(scheme: colorScheme).meterTrack
         HStack(alignment: .center, spacing: 6) {
             ZStack(alignment: .bottom) {
-                Capsule().fill(Color(white: 0.92))
+                Capsule().fill(track)
                 Capsule()
                     .fill(color)
                     .frame(height: max(4, 42 * CGFloat(min(1, max(0, progress)))))
@@ -386,18 +540,20 @@ struct AppMemoryRow: View {
 
     @State private var hovering = false
     @State private var showInfo = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let colors = MenuMonitorTheme.Palette(scheme: colorScheme)
         GeometryReader { geo in
             let frac = maxBytes > 0 ? CGFloat(app.memoryBytes) / CGFloat(maxBytes) : 0
             ZStack(alignment: .leading) {
                 // Full-row hover background
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(hovering ? Color(white: 0.90) : Color.clear)
+                    .fill(hovering ? colors.rowHover : Color.clear)
 
                 // Proportional usage bar
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color(white: hovering ? 0.86 : 0.94))
+                    .fill(hovering ? colors.usageBarHover : colors.usageBar)
                     .frame(width: max(8, geo.size.width * frac))
 
                 HStack(spacing: 8) {
@@ -497,6 +653,22 @@ struct AppInfoPopover: View {
     }
 }
 
+private extension View {
+    func monitorCard(_ colors: MenuMonitorTheme.Palette) -> some View {
+        background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(colors.cardBackground)
+                .shadow(color: colors.cardShadow, radius: 6, y: 2)
+                .overlay {
+                    if colors.isDark {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                    }
+                }
+        )
+    }
+}
+
 struct LegendDot: View {
     let color: Color
     let label: String
@@ -509,32 +681,34 @@ struct LegendDot: View {
     }
 }
 
-/// Custom segmented control: light gray track, white selected pill, #4D4D4D labels.
+/// Custom segmented control. Light: gray track, white pill, #4D4D4D labels. Dark: inset track, lifted pill.
 private struct SegmentedTabs: View {
     let titles: [String]
     @Binding var selection: Int
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let colors = MenuMonitorTheme.Palette(scheme: colorScheme)
         GeometryReader { geo in
             let count = max(titles.count, 1)
             let segmentW = geo.size.width / CGFloat(count)
             ZStack(alignment: .leading) {
                 // Track
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color(red: 232/255, green: 234/255, blue: 238/255)) // light gray
+                    .fill(colors.segmentTrack)
 
                 // Thin separators between segments (pill covers neighbors)
                 ForEach(1..<count, id: \.self) { i in
                     Rectangle()
-                        .fill(Color.black.opacity(0.10))
+                        .fill(colors.segmentDivider)
                         .frame(width: 1, height: 14)
                         .position(x: CGFloat(i) * segmentW, y: geo.size.height / 2)
                 }
 
                 // Selected pill
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white)
-                    .shadow(color: .black.opacity(0.10), radius: 2, y: 1)
+                    .fill(colors.segmentPill)
+                    .shadow(color: colors.segmentShadow, radius: 2, y: 1)
                     .frame(width: max(0, segmentW - 4), height: max(0, geo.size.height - 4))
                     .offset(x: CGFloat(selection) * segmentW + 2)
                     .animation(.easeInOut(duration: 0.18), value: selection)
@@ -547,7 +721,7 @@ private struct SegmentedTabs: View {
                         } label: {
                             Text(title)
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(MenuMonitorTheme.labelGray)
+                                .foregroundStyle(colors.label)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
