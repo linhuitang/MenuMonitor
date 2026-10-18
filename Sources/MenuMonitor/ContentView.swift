@@ -162,6 +162,9 @@ struct ContentView: View {
     @EnvironmentObject var monitor: SystemMonitor
     @EnvironmentObject var theme: ThemeStore
     @AppStorage(SettingsKey.temperatureUnit) private var temperatureUnitRaw = TemperatureUnit.celsius.rawValue
+    @AppStorage(SettingsKey.language) private var languageRaw = LanguageSetting.system.rawValue
+    /// Resolved UI language; reading `languageRaw` re-renders the panel live on change.
+    private var lang: AppLanguage { (LanguageSetting(rawValue: languageRaw) ?? .system).resolved }
     private var tempUnit: TemperatureUnit { TemperatureUnit(rawValue: temperatureUnitRaw) ?? .celsius }
     @State private var selectedTab: Int
 
@@ -246,7 +249,7 @@ struct ContentView: View {
                 Button {
                     monitor.cleanCaches()
                 } label: {
-                    Text(monitor.isCleaning ? "清理中…" : "快速清理")
+                    Text(monitor.isCleaning ? lang.tr("Cleaning…", "清理中…") : lang.tr("Quick Clean", "快速清理"))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(colors.label.opacity(quickCleanGreyed ? 0.45 : 1))
                         .padding(.horizontal, 12)
@@ -297,21 +300,21 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 8) {
                 MetricColumn(
-                    title: "内存占用",
+                    title: lang.tr("Memory", "内存占用"),
                     valueText: String(format: "%.0f", monitor.memoryUsage),
                     unit: "%",
                     progress: monitor.memoryUsage / 100,
                     color: monitor.memoryUsage > 60 ? Color.orange : MenuMonitorTheme.metricGreen
                 )
                 MetricColumn(
-                    title: "CPU 占用",
+                    title: lang.tr("CPU", "CPU 占用"),
                     valueText: String(format: "%.0f", monitor.cpuUsage),
                     unit: "%",
                     progress: monitor.cpuUsage / 100,
                     color: cpuColor(monitor.cpuUsage)
                 )
                 MetricColumn(
-                    title: "CPU 温度",
+                    title: lang.tr("CPU Temp", "CPU 温度"),
                     valueText: monitor.cpuTemp.map { String(format: "%.0f", tempUnit.convert($0)) } ?? "--",
                     unit: monitor.cpuTemp != nil ? tempUnit.symbol : "",
                     progress: tempProgress(monitor.cpuTemp),
@@ -320,10 +323,10 @@ struct ContentView: View {
             }
 
             HStack {
-                Text("应用内存占用")
+                Text(lang.tr("App Memory", "应用内存占用"))
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
-                Button("管理进程") {
+                Button(lang.tr("Manage Processes", "管理进程")) {
                     monitor.openActivityMonitor()
                 }
                 .font(.system(size: 12, weight: .medium))
@@ -353,11 +356,11 @@ struct ContentView: View {
     private var systemCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("系统监控")
+                Text(lang.tr("System", "系统监控"))
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
                 SegmentedTabs(
-                    titles: ["磁盘 I/O", "网络", "硬件"],
+                    titles: [lang.tr("Disk I/O", "磁盘 I/O"), lang.tr("Network", "网络"), lang.tr("Hardware", "硬件")],
                     selection: $selectedTab
                 )
                 .frame(width: 190, height: 26)
@@ -385,13 +388,13 @@ struct ContentView: View {
                 Image(systemName: "laptopcomputer")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
-                Text("可用 \(SystemMonitor.formatDiskGB(monitor.diskFree)) / 共 \(SystemMonitor.formatDiskGB(monitor.diskTotal))")
+                Text(lang.tr("\(SystemMonitor.formatDiskGB(monitor.diskFree)) free of \(SystemMonitor.formatDiskGB(monitor.diskTotal))", "可用 \(SystemMonitor.formatDiskGB(monitor.diskFree)) / 共 \(SystemMonitor.formatDiskGB(monitor.diskTotal))"))
                     .font(.system(size: 11, weight: .regular))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                     .fixedSize(horizontal: true, vertical: false)
                 Spacer(minLength: 4)
-                Button("硬件详情") {
+                Button(lang.tr("Hardware Info", "硬件详情")) {
                     monitor.openSystemInformation()
                 }
                 .font(.system(size: 12, weight: .medium))
@@ -415,8 +418,8 @@ struct ContentView: View {
             .frame(height: 8)
 
             HStack(spacing: 14) {
-                LegendDot(color: .orange, label: "已用")
-                LegendDot(color: colors.diskFree, label: "可用")
+                LegendDot(color: .orange, label: lang.tr("Used", "已用"))
+                LegendDot(color: colors.diskFree, label: lang.tr("Free", "可用"))
             }
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
@@ -454,10 +457,10 @@ struct ContentView: View {
     private var diskIOTab: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("读 \(SystemMonitor.formatSpeed(monitor.diskReadSpeed))")
+                Text(lang.tr("Read \(SystemMonitor.formatSpeed(monitor.diskReadSpeed))", "读 \(SystemMonitor.formatSpeed(monitor.diskReadSpeed))"))
                     .font(.system(size: 11, weight: .regular, design: .monospaced))
                 Spacer()
-                Text("写 \(SystemMonitor.formatSpeed(monitor.diskWriteSpeed))")
+                Text(lang.tr("Write \(SystemMonitor.formatSpeed(monitor.diskWriteSpeed))", "写 \(SystemMonitor.formatSpeed(monitor.diskWriteSpeed))"))
                     .font(.system(size: 11, weight: .regular, design: .monospaced))
             }
             .foregroundStyle(.secondary)
@@ -551,6 +554,7 @@ struct AppMemoryRow: View {
 
     @State private var hovering = false
     @State private var showInfo = false
+    @AppStorage(SettingsKey.language) private var languageRaw = LanguageSetting.system.rawValue
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -584,7 +588,7 @@ struct AppMemoryRow: View {
                     Spacer(minLength: 4)
 
                     if hovering {
-                        Button("关闭") {
+                        Button(L("Quit", "关闭")) {
                             monitor.quitApp(app)
                         }
                         .font(.system(size: 12, weight: .medium))
@@ -621,6 +625,7 @@ struct AppMemoryRow: View {
 
 struct AppInfoPopover: View {
     @EnvironmentObject var monitor: SystemMonitor
+    @AppStorage(SettingsKey.language) private var languageRaw = LanguageSetting.system.rawValue
     let app: AppMemoryInfo
 
     var body: some View {
@@ -639,9 +644,9 @@ struct AppInfoPopover: View {
 
             infoRow("Bundle ID", app.bundleIdentifier ?? "—")
             infoRow("PID", app.pids.map(String.init).joined(separator: ", "))
-            infoRow("内存", SystemMonitor.formatBytes(app.memoryBytes))
+            infoRow(L("Memory", "内存"), SystemMonitor.formatBytes(app.memoryBytes))
 
-            Button("在活动监视器中查看") {
+            Button(L("Show in Activity Monitor", "在活动监视器中查看")) {
                 monitor.openActivityMonitor()
             }
             .font(.system(size: 12, weight: .medium))

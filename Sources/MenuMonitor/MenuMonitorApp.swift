@@ -136,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if args.contains("--print-settings") {
             SettingsKey.registerDefaults()
             let d = UserDefaults.standard
-            print("appearance=\(AppearanceMode.current.rawValue) refreshInterval=\(RefreshIntervalOption.current) menuBarDisplay=\(MenuBarDisplay.current.rawValue) temperatureUnit=\(d.string(forKey: SettingsKey.temperatureUnit) ?? "nil") loginItem=\(LoginItem.statusText)")
+            print("language=\(LanguageSetting.current.rawValue)->\(AppLanguage.current.rawValue) appearance=\(AppearanceMode.current.rawValue) refreshInterval=\(RefreshIntervalOption.current) menuBarDisplay=\(MenuBarDisplay.current.rawValue) temperatureUnit=\(d.string(forKey: SettingsKey.temperatureUnit) ?? "nil") loginItem=\(LoginItem.statusText)")
             NSApp.terminate(nil)
             return
         }
@@ -326,7 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func makeStatusMenu() -> NSMenu {
         let menu = NSMenu()
         let settings = NSMenuItem(
-            title: "设置…",
+            title: L("Settings…", "设置…"),
             action: #selector(openSettings(_:)),
             keyEquivalent: ","
         )
@@ -334,7 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(settings)
         menu.addItem(.separator())
         let quit = NSMenuItem(
-            title: "退出 MenuMonitor",
+            title: L("Quit MenuMonitor", "退出 MenuMonitor"),
             action: #selector(quitApp(_:)),
             keyEquivalent: "q"
         )

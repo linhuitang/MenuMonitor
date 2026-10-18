@@ -9,6 +9,7 @@ enum SettingsKey {
     static let refreshInterval = "refreshInterval"
     static let menuBarDisplay = "menuBarDisplay"
     static let temperatureUnit = "temperatureUnit"
+    static let language = "language"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -16,6 +17,7 @@ enum SettingsKey {
             refreshInterval: 2.0,
             menuBarDisplay: MenuBarDisplay.memory.rawValue,
             temperatureUnit: TemperatureUnit.celsius.rawValue,
+            language: LanguageSetting.system.rawValue,
         ])
     }
 }
@@ -25,9 +27,9 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .system: return "跟随系统"
-        case .light: return "浅色"
-        case .dark: return "深色"
+        case .system: return L("Follow System", "跟随系统")
+        case .light: return L("Light", "浅色")
+        case .dark: return L("Dark", "深色")
         }
     }
     static var current: AppearanceMode {
@@ -40,10 +42,10 @@ enum MenuBarDisplay: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .memory: return "内存占用"
-        case .cpu: return "CPU 占用"
-        case .memoryAndCPU: return "内存 + CPU"
-        case .iconOnly: return "仅图标"
+        case .memory: return L("Memory", "内存占用")
+        case .cpu: return L("CPU", "CPU 占用")
+        case .memoryAndCPU: return L("Memory + CPU", "内存 + CPU")
+        case .iconOnly: return L("Icon Only", "仅图标")
         }
     }
     static var current: MenuBarDisplay {
@@ -77,11 +79,11 @@ enum LoginItem {
 
     static var statusText: String {
         switch status {
-        case .enabled: return "已启用"
-        case .requiresApproval: return "需在「系统设置 → 通用 → 登录项」中允许"
+        case .enabled: return L("Enabled", "已启用")
+        case .requiresApproval: return L("Allow in System Settings → General → Login Items", "需在「系统设置 → 通用 → 登录项」中允许")
         // mainApp reports .notFound until it has been registered once.
-        case .notRegistered, .notFound: return "未启用"
-        @unknown default: return "未知状态"
+        case .notRegistered, .notFound: return L("Off", "未启用")
+        @unknown default: return L("Unknown", "未知状态")
         }
     }
 
@@ -109,6 +111,10 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.refreshInterval) private var refreshInterval = 2.0
     @AppStorage(SettingsKey.menuBarDisplay) private var menuBarDisplay = MenuBarDisplay.memory.rawValue
     @AppStorage(SettingsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
+    @AppStorage(SettingsKey.language) private var language = LanguageSetting.system.rawValue
+
+    /// Resolved UI language; reading `language` makes the view re-render live when it changes.
+    private var lang: AppLanguage { (LanguageSetting(rawValue: language) ?? .system).resolved }
 
     @State private var launchAtLogin = LoginItem.isEnabled
     @State private var loginStatus = LoginItem.statusText
@@ -118,58 +124,65 @@ struct SettingsView: View {
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String ?? "1.0"
         let build = info?["CFBundleVersion"] as? String ?? "1"
-        return "版本 \(short) (\(build))"
+        return lang.tr("Version \(short) (\(build))", "版本 \(short) (\(build))")
     }
 
     var body: some View {
         Form {
-            Section("通用") {
-                Toggle("开机自动启动", isOn: Binding(
+            Section(lang.tr("General", "通用")) {
+                Toggle(lang.tr("Launch at Login", "开机自动启动"), isOn: Binding(
                     get: { launchAtLogin },
                     set: { newValue in
                         loginError = LoginItem.set(newValue)
                         refreshLoginState()
                     }
                 ))
-                LabeledContent("状态") {
-                    Text(loginError.map { "设置失败：\($0)" } ?? loginStatus)
+                LabeledContent(lang.tr("Status", "状态")) {
+                    Text(loginError.map { lang.tr("Failed: \($0)", "设置失败：\($0)") } ?? LoginItem.statusText)
                         .foregroundStyle(loginError == nil ? Color.secondary : Color.red)
                         .font(.system(size: 12))
                 }
 
-                Picker("刷新间隔", selection: $refreshInterval) {
+                Picker(lang.tr("Refresh Interval", "刷新间隔"), selection: $refreshInterval) {
                     ForEach(RefreshIntervalOption.values, id: \.self) { v in
-                        Text("\(Int(v)) 秒").tag(v)
+                        Text(lang.tr("\(Int(v)) s", "\(Int(v)) 秒")).tag(v)
                     }
                 }
             }
 
-            Section("显示") {
-                Picker("外观", selection: $appearance) {
+            Section(lang.tr("Display", "显示")) {
+                Picker(lang.tr("Language", "语言"), selection: $language) {
+                    ForEach(LanguageSetting.allCases) { option in
+                        Text(option.title).tag(option.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Picker(lang.tr("Appearance", "外观"), selection: $appearance) {
                     ForEach(AppearanceMode.allCases) { mode in
                         Text(mode.title).tag(mode.rawValue)
                     }
                 }
                 .pickerStyle(.segmented)
 
-                Picker("菜单栏显示", selection: $menuBarDisplay) {
+                Picker(lang.tr("Menu Bar Shows", "菜单栏显示"), selection: $menuBarDisplay) {
                     ForEach(MenuBarDisplay.allCases) { d in
                         Text(d.title).tag(d.rawValue)
                     }
                 }
 
-                Picker("温度单位", selection: $temperatureUnit) {
-                    Text("摄氏度 °C").tag(TemperatureUnit.celsius.rawValue)
-                    Text("华氏度 °F").tag(TemperatureUnit.fahrenheit.rawValue)
+                Picker(lang.tr("Temperature Unit", "温度单位"), selection: $temperatureUnit) {
+                    Text(lang.tr("Celsius °C", "摄氏度 °C")).tag(TemperatureUnit.celsius.rawValue)
+                    Text(lang.tr("Fahrenheit °F", "华氏度 °F")).tag(TemperatureUnit.fahrenheit.rawValue)
                 }
                 .pickerStyle(.segmented)
             }
 
-            Section("关于") {
+            Section(lang.tr("About", "关于")) {
                 LabeledContent("MenuMonitor") {
                     Text(version).foregroundStyle(.secondary)
                 }
-                LabeledContent("源代码") {
+                LabeledContent(lang.tr("Source Code", "源代码")) {
                     Link("github.com/linhuitang/MenuMonitor",
                          destination: URL(string: "https://github.com/linhuitang/MenuMonitor")!)
                         .foregroundStyle(MenuMonitorTheme.linkBlue)
@@ -208,8 +221,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.orderFrontRegardless()
     }
 
+    static var title: String { L("MenuMonitor Settings", "MenuMonitor 设置") }
+
     func applyAppearance() {
         guard let window else { return }
+        window.title = Self.title
         switch AppearanceMode.current {
         case .system: window.appearance = nil
         case .light: window.appearance = NSAppearance(named: .aqua)
@@ -220,7 +236,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     func makeWindow() -> NSWindow {
         let hosting = NSHostingController(rootView: SettingsView())
         let window = NSWindow(contentViewController: hosting)
-        window.title = "MenuMonitor 设置"
+        window.title = Self.title
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         window.delegate = self

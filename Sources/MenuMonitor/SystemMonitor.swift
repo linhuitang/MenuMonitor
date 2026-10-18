@@ -59,9 +59,9 @@ final class SystemMonitor: ObservableObject {
 
     var junkText: String {
         if junkBytes < Self.junkCleanThreshold {
-            return "没有要清理的垃圾"
+            return L("No junk to clean", "没有要清理的垃圾")
         }
-        return "待清理垃圾 \(Self.formatBytes(junkBytes))"
+        return L("Junk: \(Self.formatBytes(junkBytes))", "待清理垃圾 \(Self.formatBytes(junkBytes))")
     }
 
     private var currentInterval: TimeInterval = 0
@@ -146,7 +146,7 @@ final class SystemMonitor: ObservableObject {
         cleanWorkFinished = false
         cleanHoldUntil = nil
         cleanDoneMessage = nil
-        cleanStatusMessage = "清理中 0%"
+        cleanStatusMessage = L("Cleaning 0%", "清理中 0%")
         cleanStartDate = Date()
         startCleanDisplayTimer()
 
@@ -170,11 +170,7 @@ final class SystemMonitor: ObservableObject {
                     NSLog("[MenuMonitor] clean finished with %d errors (see earlier logs)", result.errorCount)
                 }
                 let prefix = dryRun ? "[dry-run] " : ""
-                self.cleanDoneMessage = String(
-                    format: "%@已清理 %@",
-                    prefix,
-                    Self.formatBytes(freed)
-                )
+                self.cleanDoneMessage = prefix + L("Cleaned \(Self.formatBytes(freed))", "已清理 \(Self.formatBytes(freed))")
                 self.cleanRawProgress = 1
                 self.cleanWorkFinished = true
                 NSLog("[MenuMonitor] clean done dryRun=%@ freed=%@ junkNow=%@ removed=%d skipped=%d errors=%d",
@@ -229,11 +225,11 @@ final class SystemMonitor: ObservableObject {
                 cleanProgress += (1.0 - cleanProgress) * 0.45
                 if cleanProgress >= 0.995 {
                     cleanProgress = 1
-                    cleanStatusMessage = cleanDoneMessage ?? "已清理"
+                    cleanStatusMessage = cleanDoneMessage ?? L("Cleaned", "已清理")
                     isCleaning = false
                     cleanHoldUntil = Date().addingTimeInterval(holdDuration)
                 } else {
-                    cleanStatusMessage = "清理中 99%"
+                    cleanStatusMessage = L("Cleaning 99%", "清理中 99%")
                 }
             } else {
                 let remaining = max(0.05, minDuration - elapsed)
@@ -241,7 +237,7 @@ final class SystemMonitor: ObservableObject {
                 let step = (1.0 - cleanProgress) * min(1.0, (1.0 / 30.0) / remaining)
                 cleanProgress = min(0.99, cleanProgress + step)
                 let pct = Int((cleanProgress * 100).rounded())
-                cleanStatusMessage = "清理中 \(pct)%"
+                cleanStatusMessage = L("Cleaning \(pct)%", "清理中 \(pct)%")
             }
             return
         }
@@ -251,7 +247,7 @@ final class SystemMonitor: ObservableObject {
         let blended = min(0.97, max(cleanRawProgress * 0.85 + timeFloor * 0.15, min(cleanRawProgress, 0.97)))
         cleanProgress += (blended - cleanProgress) * 0.28
         let pct = Int((cleanProgress * 100).rounded())
-        cleanStatusMessage = "清理中 \(pct)%"
+        cleanStatusMessage = L("Cleaning \(pct)%", "清理中 \(pct)%")
     }
 
 
